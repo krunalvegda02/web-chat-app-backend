@@ -1,0 +1,16 @@
+// routes/index.js
+import authRoutes from "./auth.routes.js";
+import userRoutes from "./user.routes.js";
+import tenantRoutes from "./tenant.routes.js";
+import chatRoutes from "./chat.routes.js";
+
+import { ROUTE } from "../constants/endpoints.js";
+
+const registerRoutes = (app) => {
+  app.use(ROUTE.AUTH_ROUTER, authRoutes);
+  app.use(ROUTE.USER_ROUTER, userRoutes);
+  app.use(ROUTE.TENANT_ROUTER, tenantRoutes);
+  app.use(ROUTE.CHAT_ROUTER, chatRoutes);
+};
+
+export default registerRoutes;
