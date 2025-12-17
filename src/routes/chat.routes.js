@@ -19,9 +19,10 @@ router.get(API.CHAT.ALL_CHATS, verifyJWT, requireRole('SUPER_ADMIN'), chatContro
 router.get(API.CHAT.ADMIN_ROOMS, verifyJWT, requireRole('SUPER_ADMIN'), chatController.getAdminRooms);
 router.post(API.CHAT.CREATE_ADMIN_ROOM, verifyJWT, requireRole('SUPER_ADMIN'), chatController.createAdminRoom);
 router.get(API.CHAT.ADMIN_CHATS, verifyJWT, requireRole('SUPER_ADMIN'), chatController.getAdminChats);
-router.get('/admin-chat-rooms', verifyJWT, requireRole('ADMIN'), chatController.getAdminChatRooms);
 
-
+// Admin routes
+router.get(API.CHAT.ADMIN_CHAT_ROOMS, verifyJWT, chatController.getAdminChatRooms);
+router.post(API.CHAT.CREATE_OR_GET_ADMIN_ROOM, verifyJWT, chatController.createOrGetAdminRoom);
 
 export default router;
 

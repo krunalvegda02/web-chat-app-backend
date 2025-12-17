@@ -47,7 +47,8 @@ const API = {
         ADMIN_ROOMS: "/admin-rooms",
         CREATE_ADMIN_ROOM: "/admin-rooms",
         ADMIN_CHATS: "/admin/:adminId/chats",
-        GET_ADMIN_CHATS: "/admin-chats"
+        ADMIN_CHAT_ROOMS: "/admin-chat-rooms",
+        CREATE_OR_GET_ADMIN_ROOM: "/admin-rooms"
     },
 };
 
