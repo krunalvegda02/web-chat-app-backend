@@ -75,7 +75,9 @@ const verifyRoomAccess = (room, userId, userRole = null) => {
   const isMember = room.participants.some(p => {
     if (!p.userId) return false;
     const userId_str = userId.toString ? userId.toString() : userId;
-    const participantId_str = p.userId.toString ? p.userId.toString() : p.userId;
+    // Handle both populated (p.userId._id) and unpopulated (p.userId) participants
+    const participantId = p.userId._id || p.userId;
+    const participantId_str = participantId.toString ? participantId.toString() : participantId;
     return participantId_str === userId_str;
   });
 
@@ -157,6 +159,7 @@ const cleanupUser = (io, userId) => {
       users.delete(userId);
       emitToRoom(io, roomId, 'user_typing', {
         userId,
+        roomId,
         isTyping: false,
         timestamp: new Date(),
       });
@@ -276,11 +279,47 @@ export const registerChatSocket = (io) => {
 
         console.log(`🏠 [ROOM] User ${userId} (${userRole}) joined room ${roomId}`);
 
-        // Mark room as read for this user
+        // Mark messages as read for this user
+        const unreadMessages = await Message.find({
+          roomId,
+          senderId: { $ne: userId },
+          'readBy.userId': { $ne: userId }
+        }).populate('senderId', '_id');
+
+        if (unreadMessages.length > 0) {
+          const messageIds = unreadMessages.map(m => m._id);
+          await Message.updateMany(
+            { _id: { $in: messageIds } },
+            { $push: { readBy: { userId, readAt: new Date() } } }
+          );
+
+          // Group messages by sender and emit to each sender
+          const senderMessages = {};
+          unreadMessages.forEach(msg => {
+            const senderId = msg.senderId._id.toString();
+            if (!senderMessages[senderId]) {
+              senderMessages[senderId] = [];
+            }
+            senderMessages[senderId].push(msg._id);
+          });
+
+          // Emit messages_read event to each sender
+          Object.keys(senderMessages).forEach(senderId => {
+            emitToUser(io, senderId, 'messages_read', {
+              roomId,
+              messageIds: senderMessages[senderId],
+              readBy: userId,
+              timestamp: new Date()
+            });
+          });
+
+          console.log(`📖 [READ] Marked ${messageIds.length} messages as read for user ${userId}`);
+        }
+
+        // Clear unread count for this user
         if (room.unreadCount && room.unreadCount.has(userId.toString())) {
           room.unreadCount.delete(userId.toString());
           await room.save();
-          console.log(`📖 [READ] Marked room ${roomId} as read for user ${userId}`);
         }
 
         // Broadcast updated room users
@@ -387,13 +426,13 @@ export const registerChatSocket = (io) => {
 
         // ✅ IMPORTANT: Don't update unreadCount for sender
         room.participants.forEach(participant => {
-          if (participant.userId._id.toString() !== userId.toString()) {
+          if (participant.userId && participant.userId._id && participant.userId._id.toString() !== userId.toString()) {
             const currentCount = room.unreadCount.get(participant.userId._id.toString()) || 0;
             room.unreadCount.set(participant.userId._id.toString(), currentCount + 1);
           }
         });
 
-        await room.save();
+        await room.save({ validateBeforeSave: false });
 
         // ========== BROADCAST MESSAGE ==========
         const messageData = {
@@ -409,7 +448,7 @@ export const registerChatSocket = (io) => {
             role: message.senderId.role,
           },
           createdAt: message.createdAt,
-          status: 'delivered',
+          status: 'sent',
           readBy: [],
           reactions: [],
           isEdited: false,
@@ -418,11 +457,46 @@ export const registerChatSocket = (io) => {
         };
 
         // Broadcast to ALL in room (including sender)
+        const roomSockets = await io.of('/chat').in(`room:${roomId}`).fetchSockets();
+        console.log(`📡 [BROADCAST] Emitting to room ${roomId}, ${roomSockets.length} sockets in room`);
         emitToRoom(io, roomId, 'message_received', messageData);
+
+        // ✅ Auto-mark as read for users currently active in the room (with delay)
+        const activeUsers = activeRoomUsers.get(roomId) || new Set();
+        const readByUsers = Array.from(activeUsers).filter(uid => uid !== userId.toString());
+        
+        if (readByUsers.length > 0) {
+          // Delay to ensure sender's UI receives message first
+          setTimeout(async () => {
+            try {
+              await Message.updateOne(
+                { _id: message._id },
+                { $push: { readBy: { $each: readByUsers.map(uid => ({ userId: uid, readAt: new Date() })) } } }
+              );
+
+              console.log(`📖 [AUTO_READ] Message ${message._id} marked as read in DB by ${readByUsers.length} users`);
+
+              // Emit messages_read to sender
+              emitToUser(io, userId.toString(), 'messages_read', {
+                roomId,
+                messageIds: [message._id],
+                readBy: readByUsers,
+                timestamp: new Date()
+              });
+
+              console.log(`📡 [AUTO_READ] Emitted messages_read to sender ${userId} for message ${message._id}`);
+            } catch (err) {
+              console.error(`❌ [AUTO_READ] Error:`, err);
+            }
+          }, 1000);
+        } else {
+          console.log(`⚠️ [AUTO_READ] No active users to mark message ${message._id} as read`);
+        }
 
         // Stop typing indicator for sender
         emitToRoom(io, roomId, 'user_typing', {
           userId,
+          roomId,
           isTyping: false,
           timestamp: new Date(),
         });
@@ -433,15 +507,9 @@ export const registerChatSocket = (io) => {
           typingRoomUsers.delete(userId);
         }
 
-        // Emit delivery status
-        emitToRoom(io, roomId, 'message_delivered', {
-          messageId: message._id,
-          timestamp: new Date(),
-        });
-
         // Notify other participants about unread count
         room.participants.forEach(participant => {
-          if (participant.userId._id.toString() !== userId.toString()) {
+          if (participant.userId && participant.userId._id && participant.userId._id.toString() !== userId.toString()) {
             emitToUser(io, participant.userId._id.toString(), 'unread_count_updated', {
               roomId,
               unreadCount: room.unreadCount.get(participant.userId._id.toString()) || 0,
@@ -452,10 +520,10 @@ export const registerChatSocket = (io) => {
         // ✅ ADMIN_CHAT specific notification
         if (room.type === 'ADMIN_CHAT') {
           const otherParticipant = room.participants.find(p =>
-            p.userId._id.toString() !== userId.toString()
+            p.userId && p.userId._id && p.userId._id.toString() !== userId.toString()
           );
 
-          if (otherParticipant) {
+          if (otherParticipant && otherParticipant.userId && otherParticipant.userId._id) {
             emitToUser(io, otherParticipant.userId._id.toString(), 'new_admin_message', {
               roomId,
               message: messageData,
@@ -498,6 +566,7 @@ export const registerChatSocket = (io) => {
 
         emitToRoom(io, roomId, 'user_typing', {
           userId,
+          roomId,
           isTyping: true,
           timestamp: new Date(),
         });
@@ -526,6 +595,7 @@ export const registerChatSocket = (io) => {
 
         emitToRoom(io, roomId, 'user_typing', {
           userId,
+          roomId,
           isTyping: false,
           timestamp: new Date(),
         });
@@ -554,6 +624,58 @@ export const registerChatSocket = (io) => {
 
       } catch (error) {
         console.error(`❌ [MARK_READ] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: Mark Messages as Read ==========
+    socket.on('mark_messages_read', async ({ roomId, messageIds }) => {
+      try {
+        if (!rateLimiter.check('mark_read')) return;
+        if (!roomId || !messageIds || messageIds.length === 0) return;
+
+        const room = await Room.findById(roomId);
+        const access = verifyRoomAccess(room, userId, userRole);
+        if (!access.valid) return;
+
+        // Mark messages as read
+        const result = await Message.updateMany(
+          {
+            _id: { $in: messageIds },
+            senderId: { $ne: userId },
+            'readBy.userId': { $ne: userId }
+          },
+          {
+            $push: {
+              readBy: {
+                userId,
+                readAt: new Date()
+              }
+            }
+          }
+        );
+
+        if (result.modifiedCount > 0) {
+          // Get unique senders
+          const messages = await Message.find({ _id: { $in: messageIds } }).select('senderId');
+          const senderIds = [...new Set(messages.map(m => m.senderId.toString()))];
+
+          // Emit messages_read to each sender
+          senderIds.forEach(senderId => {
+            if (senderId !== userId.toString()) {
+              emitToUser(io, senderId, 'messages_read', {
+                roomId,
+                messageIds,
+                readBy: userId,
+                timestamp: new Date()
+              });
+            }
+          });
+
+          console.log(`📖 [MARK_READ] User ${userId} marked ${result.modifiedCount} messages as read`);
+        }
+
+      } catch (error) {
+        console.error(`❌ [MARK_MESSAGES_READ] Error: ${error.message}`);
       }
     });
 

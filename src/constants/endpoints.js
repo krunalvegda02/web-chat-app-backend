@@ -3,6 +3,7 @@ const ROUTE = {
     USER_ROUTER: "/api/v1/users",
     TENANT_ROUTER: "/api/v1/tenants",
     CHAT_ROUTER: "/api/v1/chat",
+    UPLOAD_ROUTER: "/api/v1/upload",
 };
 
 const API = {
@@ -17,6 +18,9 @@ const API = {
         ME: "/me",
         SESSIONS: "/sessions",
         REVOKE_SESSION: "/revoke-session",
+        REGISTER_WITH_INVITE: "/register-with-invite",
+
+        INVITE_INFO: '/invite-info',
     },
     SUPER_ADMIN: {
         CREATE_ADMIN: "/create-admin",
@@ -32,23 +36,30 @@ const API = {
         DELETE: "/:tenantId",
         BY_SLUG: "/by-slug/:slug",
         DETAILS: "/:tenantId",
+        GET_THEME: "/:tenantId/theme",
         UPDATE_THEME: "/:tenantId/theme",
         INVITE_LINK: "/:tenantId/invite-link",
         USERS: "/:tenantId/users",
+
+        INVITE_USER: '/:tenantId/invite-user',
+        RESEND_INVITE: '/:tenantId/resend-invite',
+        INVITE_HISTORY: '/:tenantId/invite-history',
+        ADMIN_USERS: '/admin-users',
+        TENANT_MEMBERS: '/members'
+
+
     },
     CHAT: {
+        AVAILABLE_USERS: "/available-users",
         ROOMS: "/rooms",
-        CREATE_ROOM: "/rooms",
-        ROOM_DETAILS: "/rooms/:roomId",
+        DIRECT: "/direct",
+        GROUP: "/group",
+        ADMIN_CHAT: "/admin-chat",
         ROOM_MESSAGES: "/rooms/:roomId/messages",
-        MARK_AS_READ: "/rooms/:roomId/mark-as-read",
         SEARCH_MESSAGES: "/rooms/:roomId/search",
-        ALL_CHATS: "/all-chats",
-        ADMIN_ROOMS: "/admin-rooms",
-        CREATE_ADMIN_ROOM: "/admin-rooms",
-        ADMIN_CHATS: "/admin/:adminId/chats",
-        ADMIN_CHAT_ROOMS: "/admin-chat-rooms",
-        CREATE_OR_GET_ADMIN_ROOM: "/admin-rooms"
+        MARK_AS_READ: "/rooms/:roomId/mark-read",
+        ALL_CHATS: "/admin/all-chats",
+        ADMIN_CHATS_BY_ID: "/admin/chats/:adminId"
     },
 };
 

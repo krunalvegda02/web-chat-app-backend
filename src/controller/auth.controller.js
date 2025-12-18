@@ -1,4 +1,5 @@
 import { User } from '../models/index.model.js';
+import Tenant from '../models/tenant.model.js';
 import jwt from 'jsonwebtoken';
 
 import {
@@ -13,6 +14,7 @@ import {
 
 import { successResponse, errorResponse } from '../utils/response.js';
 import { validateEmail, validatePassword } from '../utils/validators.js';
+import { sendWelcomeEmail } from '../utils/mailer.js';
 import MESSAGE from '../constants/message.js';
 
 
@@ -41,6 +43,11 @@ const register = async (req, res, next) => {
 
         const user = new User({ name, email, password, role: 'USER' });
         await user.save();
+
+        // Send welcome email
+        sendWelcomeEmail(email, name, 'Chat App').catch(err => 
+            console.error('Welcome email failed:', err)
+        );
 
         const accessToken = generateAccessToken(user._id, user.email, user.role, user.tenantId);
         const refreshToken = await saveRefreshToken(
@@ -244,6 +251,177 @@ const resetPassword = async (req, res, next) => {
     }
 };
 
+
+/**
+ * USER: Accept invite and register
+ * POST /api/auth/register-with-invite
+ */
+export const registerWithInvite = async (req, res, next) => {
+  try {
+    const { token, tenantId, name, password, confirmPassword } = req.body;
+    
+    // 1. Validate all inputs present
+    if (!token || !tenantId || !name || !password || !confirmPassword) {
+      return errorResponse(res, MESSAGE.REQUIRED_FIELDS, 400);
+    }
+    
+    // 2. Validate password match
+    if (password !== confirmPassword) {
+      return errorResponse(res, MESSAGE.PASSWORDS_NOT_MATCH, 400);
+    }
+    
+    // 3. Validate password strength
+    validatePassword(password);
+    
+    // 4. Validate name
+    if (name.trim().length < 2) {
+      return errorResponse(res, 'Name must be at least 2 characters', 400);
+    }
+    
+    // 5. Check tenant exists
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return errorResponse(res, MESSAGE.TENANT_NOT_FOUND, 404);
+    }
+    
+    // 6. Get invite token from tenant
+    const inviteToken = tenant.inviteToken;
+    
+    if (!inviteToken) {
+      return errorResponse(res, 'No active invite found', 400);
+    }
+    
+    // 7. Validate token
+    if (inviteToken.token !== token) {
+      return errorResponse(res, 'Invalid invite token', 401);
+    }
+    
+    // 8. Check not already accepted
+    if (inviteToken.acceptedAt) {
+      return errorResponse(res, 'This invite was already accepted', 400);
+    }
+    
+    // 9. Check expiry
+    if (new Date() > new Date(inviteToken.expiresAt)) {
+      return errorResponse(res, 'Invite link has expired', 401);
+    }
+    
+    // 10. Check email not already registered globally
+    const existingUser = await User.findOne({ 
+      email: inviteToken.invitedEmail 
+    });
+    if (existingUser) {
+      return errorResponse(res, 'Email already registered', 400);
+    }
+    
+    // 11. Create user
+    const user = new User({
+      name: name.trim(),
+      email: inviteToken.invitedEmail,
+      password,
+      role: 'USER',              // IMPORTANT: Always USER
+      tenantId,
+      status: 'ACTIVE'
+    });
+    
+    await user.save();
+    
+    // 12. Update tenant - mark invite as accepted
+    tenant.inviteToken = {
+      ...tenant.inviteToken,
+      acceptedAt: new Date(),
+      acceptedBy: user._id
+    };
+    
+    // Add user to members list
+    if (!tenant.members) tenant.members = [];
+    tenant.members.push(user._id);
+    
+    // Update invite history
+    const lastInvite = tenant.inviteHistory?.[tenant.inviteHistory.length - 1];
+    if (lastInvite && lastInvite.email === inviteToken.invitedEmail) {
+      lastInvite.status = 'ACCEPTED';
+      lastInvite.acceptedAt = new Date();
+    }
+    
+    await tenant.save();
+    
+    // 13. Generate tokens (auto-login user)
+    const accessToken = generateAccessToken(
+      user._id, 
+      user.email, 
+      user.role, 
+      user.tenantId
+    );
+    
+    const refreshToken = await saveRefreshToken(
+      user._id,
+      req.ip,
+      req.headers['user-agent']
+    );
+    
+    console.log(`[INVITE ACCEPTED] User ${user.email} joined tenant ${tenantId}`);
+    
+    return successResponse(res, {
+      user: user.toJSON(),
+      accessToken,
+      refreshToken,
+      tenantId
+    }, 'Welcome! Registration successful! 🎉', 201);
+    
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+
+
+
+
+const getInviteInfo = async (req, res, next) => {
+  try {
+    const { token, tenantId } = req.query;
+
+    if (!token || !tenantId) {
+      return errorResponse(res, 'Invalid invite link', 400);
+    }
+
+    const tenant = await Tenant.findById(tenantId).select('name inviteToken slug');
+    if (!tenant) {
+      return errorResponse(res, 'Workspace not found', 404);
+    }
+
+    const inviteToken = tenant.inviteToken;
+
+    if (!inviteToken || !inviteToken.token) {
+      return errorResponse(res, 'No active invite for this workspace', 400);
+    }
+
+    if (inviteToken.token !== token) {
+      return errorResponse(res, 'Invalid invite token', 401);
+    }
+
+    if (inviteToken.acceptedAt) {
+      return errorResponse(res, 'This invite was already accepted', 400);
+    }
+
+    if (new Date() > new Date(inviteToken.expiresAt)) {
+      return errorResponse(res, 'Invite link has expired', 401);
+    }
+
+    return successResponse(res, {
+      invitedEmail: inviteToken.invitedEmail,
+      tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      expiresAt: inviteToken.expiresAt
+    }, 'Invite is valid');
+
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
     login,
     register,
@@ -254,5 +432,7 @@ export default {
     getSessions,
     revokeSession,
     forgotPassword,
-    resetPassword
+    resetPassword,
+    registerWithInvite,
+    getInviteInfo
 }
