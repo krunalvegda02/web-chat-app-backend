@@ -35,7 +35,7 @@ const roomSchema = new mongoose.Schema(
         
         role: {
           type: String,
-          enum: ['INITIATOR', 'PARTICIPANT', 'ADMIN', 'OWNER'],
+          enum: ['INITIATOR', 'PARTICIPANT', 'MEMBER', 'ADMIN', 'OWNER'],
           default: 'PARTICIPANT'
         },
         

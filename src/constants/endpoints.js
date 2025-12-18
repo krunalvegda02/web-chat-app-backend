@@ -53,13 +53,19 @@ const API = {
         AVAILABLE_USERS: "/available-users",
         ROOMS: "/rooms",
         DIRECT: "/direct",
-        GROUP: "/group",
         ADMIN_CHAT: "/admin-chat",
+        CREATE_GET_ROOM: "/rooms",
+        ROOM_DETAILS: "/rooms/:roomId",
         ROOM_MESSAGES: "/rooms/:roomId/messages",
+        MARK_AS_READ: "/rooms/:roomId/mark-as-read",
         SEARCH_MESSAGES: "/rooms/:roomId/search",
-        MARK_AS_READ: "/rooms/:roomId/mark-read",
-        ALL_CHATS: "/admin/all-chats",
-        ADMIN_CHATS_BY_ID: "/admin/chats/:adminId"
+        ALL_CHATS: "/all-chats",
+        ADMIN_CHATS_BY_ID: "/admin/:adminId/chats",
+        ADMIN_ROOMS: "/admin-rooms",
+        CREATE_ADMIN_ROOM: "/admin-rooms",
+        ADMIN_CHATS: "/admin/:adminId/chats",
+        ADMIN_CHAT_ROOMS: "/admin-chat-rooms",
+        CREATE_OR_GET_ADMIN_ROOM: "/admin-rooms"
     },
 };
 

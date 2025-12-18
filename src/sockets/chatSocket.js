@@ -170,33 +170,13 @@ const cleanupUser = (io, userId) => {
   userSockets.delete(userId);
   userRateLimiters.delete(userId);
 
-  // Broadcast updated online users
-  broadcastToAll(io, 'online_users', {
-    users: getOnlineUsers(),
-    count: getOnlineUsers().length,
-    timestamp: new Date(),
-  });
+  // Don't broadcast on disconnect to prevent server load
 };
 
 // ============ MAIN SOCKET HANDLER ============
 
 export const registerChatSocket = (io) => {
-  // ========== PERIODIC CLEANUP ==========
-  setInterval(() => {
-    const connectedSockets = io.of('/chat').sockets;
-    const staleUsers = [];
-
-    for (const [userId, socketId] of userSockets.entries()) {
-      if (!connectedSockets.has(socketId)) {
-        staleUsers.push(userId);
-      }
-    }
-
-    staleUsers.forEach(userId => {
-      cleanupUser(io, userId);
-      console.log(`🧹 [CLEANUP] Removed stale connection for user ${userId}`);
-    });
-  }, 5 * 60 * 1000);
+  // ========== PERIODIC CLEANUP ========== (Removed - cleanup happens on disconnect)
 
   // ========== CONNECTION HANDLER ==========
   io.of('/chat').on('connection', (socket) => {
@@ -245,8 +225,8 @@ export const registerChatSocket = (io) => {
     // Join user's private room
     socket.join(`user:${userId}`);
 
-    // Broadcast online users list
-    broadcastToAll(io, 'online_users', {
+    // Send online users only to this socket (not broadcast)
+    socket.emit('online_users', {
       users: getOnlineUsers(),
       count: getOnlineUsers().length,
       timestamp: new Date(),

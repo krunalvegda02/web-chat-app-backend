@@ -7,8 +7,6 @@ export const verifyJWT = async (req, res, next) => {
       req.cookies?.accessToken ||
       req.header("Authorization")?.replace("Bearer ", "");
 
-    console.log("===================================", token);
-
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -26,12 +24,9 @@ export const verifyJWT = async (req, res, next) => {
       });
     }
 
-    console.log(decoded)
-
     const user = await User.findById(decoded?.userId).select(
       "-password -refreshToken"
     );
-    console.log(user)
 
     if (!user) {
       return res.status(401).json({
@@ -63,8 +58,6 @@ export const requireRole = (...roles) => {
         message: "Authentication required",
       });
     }
-
-    console.log(req.user)
 
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({

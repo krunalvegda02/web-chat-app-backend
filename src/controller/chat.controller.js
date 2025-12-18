@@ -7,22 +7,6 @@ import MESSAGE from "../constants/message.js";
 import { successResponse, errorResponse } from "../utils/response.js";
 
 
-/**
- * ✅ COMPLETE CHAT CONTROLLER - PRODUCTION READY
- * 
- * Features:
- * 1. getAvailableUsersToChat() - WHO TO CHAT WITH (Plus button)
- * 2. getAllActiveRooms() - GET MY ROOMS (Chat list)
- * 3. createDirectRoom() - CREATE 1-ON-1
- * 4. createGroupRoom() - CREATE GROUP (ADMIN)
- * 5. createAdminChat() - CREATE ADMIN CHAT
- * 6. getRoomMessages() - GET MESSAGES
- * 7. searchMessages() - SEARCH MESSAGES
- * 8. markRoomAsRead() - MARK AS READ
- * 9. getAllChats() - SUPER ADMIN VIEW ALL
- * 10. getAdminChatsById() - SUPER ADMIN VIEW ADMIN'S CHATS
- */
-
 
 /* ====================================================
    1. GET AVAILABLE USERS TO CHAT WITH (FOR PLUS BUTTON)
@@ -447,11 +431,11 @@ export const createAdminChat = async (req, res, next) => {
             participants: [
                 {
                     userId: initiatorId,
-                    role: initiatorRole  // ✅ Preserve initiator role
+                    role: 'INITIATOR'  // ✅ Use room role, not system role
                 },
                 {
                     userId: adminId,
-                    role: otherUser.role  // ✅ Use actual user role
+                    role: 'PARTICIPANT'  // ✅ Use room role, not system role
                 }
             ],
             lastMessageTime: new Date()
@@ -482,96 +466,45 @@ export const getRoomMessages = async (req, res, next) => {
         const { roomId } = req.params;
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 50;
-
-        if (!roomId) {
-            return errorResponse(res, "Room ID is required", 400);
-        }
-
-        if (page < 1 || limit < 1 || limit > 100) {
-            return errorResponse(res, "Invalid pagination parameters", 400);
-        }
-
         const skip = (page - 1) * limit;
 
-        // ✅ Verify room exists
         const room = await Room.findById(roomId);
-        if (!room) {
-            return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
-        }
+        if (!room) return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
 
-        // ✅ Verify user is participant or super admin
-        const isParticipant = room.participants.some(p =>
-            p.userId && p.userId.toString() === req.user._id.toString()
+        const isParticipant = room.participants.some(
+            p => p.userId && req.user._id && p.userId.toString() === req.user._id.toString()
         );
 
         if (!isParticipant && req.user.role !== 'SUPER_ADMIN') {
             return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
         }
 
-        // Fetch messages
-        const messages = await Message.find({ roomId })
+        // ✅ Fetch only active (not deleted) messages
+        const messages = await Message.find({ roomId, isDeleted: false })
             .populate('senderId', 'name email avatar role')
             .populate('readBy.userId', 'name')
+            .populate('replyTo')
             .skip(skip)
             .limit(limit)
-            .sort({ createdAt: 1 })
-            .lean();
+            .sort({ createdAt: 1 });
 
-        const total = await Message.countDocuments({ roomId });
-
-        // ✅ Mark messages as read for current user
-        await Message.updateMany(
-            {
-                roomId,
-                senderId: { $ne: req.user._id },
-                'readBy.userId': { $ne: req.user._id }
-            },
-            {
-                $push: {
-                    readBy: {
-                        userId: req.user._id,
-                        readAt: new Date()
-                    }
-                }
-            }
-        );
-
-        // ✅ Calculate status for each message
-        const messagesWithStatus = messages.map(msg => {
-            let status = 'sent';
-
-            // Only calculate status for messages sent by current user
-            if (msg.senderId._id.toString() === req.user._id.toString()) {
-                if (msg.readBy && msg.readBy.length > 0) {
-                    status = 'read';
-                } else {
-                    status = 'delivered';
-                }
-            }
-
-            return {
-                ...msg,
-                status
-            };
-        });
+        const total = await Message.countDocuments({ roomId, isDeleted: false });
 
         return successResponse(res, {
             roomId,
-            messages: messagesWithStatus,
+            messages,
             pagination: {
                 page,
                 limit,
                 total,
                 pages: Math.ceil(total / limit)
             }
-        })
+        });
 
     } catch (error) {
-        console.error('❌ Error in getRoomMessages:', error);
         next(error);
     }
 };
-
 
 /* ====================================================
    7. SEARCH MESSAGES IN ROOM
@@ -579,51 +512,39 @@ export const getRoomMessages = async (req, res, next) => {
    ✅ Authorization check
    ✅ Limits results
    ==================================================== */
-export const searchMessages = async (req, res, next) => {
+const searchMessages = async (req, res, next) => {
     try {
         const { roomId } = req.params;
         const { query } = req.query;
 
-        if (!roomId) {
-            return errorResponse(res, "Room ID is required", 400);
+        if (!query) {
+            return errorResponse(res, 'Search query is required', 400);
         }
 
-        if (!query || query.trim().length === 0) {
-            return errorResponse(res, "Search query is required", 400);
-        }
-
-        // ✅ Verify room exists and user is participant
         const room = await Room.findById(roomId);
-        if (!room) {
-            return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
-        }
+        if (!room) return errorResponse(res, 'Room not found', 404);
 
-        const isParticipant = room.participants.some(p =>
-            p.userId && p.userId.toString() === req.user._id.toString()
+        const isParticipant = room.participants.some(
+            p => p.userId && req.user._id && p.userId.toString() === req.user._id.toString()
         );
 
         if (!isParticipant && req.user.role !== 'SUPER_ADMIN') {
-            return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
+            return errorResponse(res, 'Unauthorized', 403);
         }
 
-        // Search messages
+        // ✅ Only search active messages
         const messages = await Message.find({
             roomId,
+            isDeleted: false,
             content: { $regex: query, $options: 'i' }
         })
             .populate('senderId', 'name email avatar role')
             .sort({ createdAt: -1 })
-            .limit(50)
-            .lean();
+            .limit(50);
 
-        return successResponse(res, {
-            messages,
-            count: messages.length,
-            query
-        });
+        return successResponse(res, { messages, count: messages.length });
 
     } catch (error) {
-        console.error('❌ Error in searchMessages:', error);
         next(error);
     }
 };
@@ -805,16 +726,285 @@ export const getAdminChatsById = async (req, res, next) => {
 };
 
 
+
+// ✅ NEW: Send message with media support
+export const sendMessage = async (req, res, next) => {
+    try {
+        const { roomId, content, type, media, replyTo } = req.body;
+
+        if (!roomId || (!content && !media)) {
+            return errorResponse(res, 'Room ID and content or media is required', 400);
+        }
+
+        const room = await Room.findById(roomId);
+        if (!room) return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
+
+        const isParticipant = room.participants.some(
+            p => p.userId && req.user._id && p.userId.toString() === req.user._id.toString()
+        );
+
+        if (!isParticipant && req.user.role !== 'SUPER_ADMIN') {
+            return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
+        }
+
+        // ✅ Create message with proper status (starts as 'sent')
+        const message = new Message({
+            roomId,
+            senderId: req.user._id,
+            content: content || '',
+            type: type || 'text',
+            media: media || [],
+            status: 'sent', // ✅ Starts as 'sent' after successfully stored
+            sentAt: new Date(),
+            replyTo: replyTo || undefined
+        });
+
+        await message.save();
+        await message.populate('senderId', 'name email avatar role');
+        await message.populate('media');
+
+        // ✅ Update room's last message
+        await Room.findByIdAndUpdate(roomId, {
+            lastMessage: message._id,
+            lastMessageTime: new Date()
+        });
+
+        console.log(`✅ Message created: ${message._id} with status 'sent'`);
+
+        return successResponse(res, { message }, 'Message sent', 201);
+
+    } catch (error) {
+        console.error('Error sending message:', error);
+        next(error);
+    }
+};
+
+// ✅ FIXED: Edit message
+const editMessage = async (req, res, next) => {
+    try {
+        const { messageId } = req.params;
+        const { content } = req.body;
+
+        if (!content) {
+            return errorResponse(res, 'Content is required', 400);
+        }
+
+        const message = await Message.findById(messageId);
+        if (!message) return errorResponse(res, 'Message not found', 404);
+
+        // ✅ Only sender can edit
+        if (message.senderId.toString() !== req.user._id.toString()) {
+            return errorResponse(res, 'Only sender can edit message', 403);
+        }
+
+        // ✅ Don't edit deleted messages
+        if (message.isDeleted) {
+            return errorResponse(res, 'Cannot edit deleted message', 400);
+        }
+
+        message.content = content;
+        message.isEdited = true;
+        message.editedAt = new Date();
+
+        await message.save();
+
+        console.log(`✅ Message edited: ${messageId}`);
+
+        return successResponse(res, { message }, 'Message updated');
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+// ✅ FIXED: Delete message (soft delete)
+const deleteMessage = async (req, res, next) => {
+    try {
+        const { messageId } = req.params;
+
+        const message = await Message.findById(messageId);
+        if (!message) return errorResponse(res, 'Message not found', 404);
+
+        // ✅ Only sender can delete their own message or admin
+        if (
+            message.senderId.toString() !== req.user._id.toString() &&
+            req.user.role !== 'SUPER_ADMIN'
+        ) {
+            return errorResponse(res, 'Only sender can delete message', 403);
+        }
+
+        // ✅ Soft delete
+        await message.softDelete(req.user._id);
+
+        console.log(`✅ Message soft deleted: ${messageId}`);
+
+        return successResponse(res, null, 'Message deleted');
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+// ✅ NEW: Mark message as delivered (called when recipient connects to room)
+const markMessageAsDelivered = async (req, res, next) => {
+    try {
+        const { roomId } = req.body;
+
+        if (!roomId) {
+            return errorResponse(res, 'Room ID is required', 400);
+        }
+
+        // ✅ Find all 'sent' messages in room (not from current user)
+        const messages = await Message.find({
+            roomId,
+            status: 'sent',
+            senderId: { $ne: req.user._id },
+            isDeleted: false
+        });
+
+        if (messages.length === 0) {
+            return successResponse(res, { updated: 0 }, 'No messages to deliver');
+        }
+
+        // ✅ Mark all as delivered
+        const messageIds = messages.map(m => m._id);
+        await Message.updateMany(
+            { _id: { $in: messageIds } },
+            {
+                status: 'delivered',
+                deliveredAt: new Date()
+            }
+        );
+
+        console.log(`✅ Marked ${messageIds.length} messages as delivered`);
+
+        return successResponse(res, { updated: messageIds.length }, 'Messages marked as delivered');
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+// ✅ Original createOrGetRoom from previous fix
+const createOrGetRoom = async (req, res, next) => {
+    try {
+        const { userId } = req.body;
+
+        if (req.user.role === 'USER') {
+            if (!userId) {
+                return errorResponse(res, 'User ID is required', 400);
+            }
+
+            const otherUser = await User.findById(userId);
+            if (!otherUser) {
+                return errorResponse(res, 'User not found', 404);
+            }
+
+            if (req.user.tenantId.toString() !== otherUser.tenantId.toString()) {
+                return errorResponse(res, 'Users must be in same tenant', 403);
+            }
+
+            const existingRoom = await Room.findOne({
+                type: 'DIRECT',
+                tenantId: req.user.tenantId,
+                'participants.userId': { $all: [req.user._id, userId] }
+            });
+
+            if (existingRoom) {
+                await existingRoom.populate('participants.userId', 'name email avatar role');
+                return successResponse(res, { room: existingRoom });
+            }
+
+            const room = new Room({
+                name: `${otherUser.name}`,
+                type: 'DIRECT',
+                tenantId: req.user.tenantId,
+                participants: [
+                    {
+                        userId: req.user._id,
+                        role: 'INITIATOR',
+                        joinedAt: new Date(),
+                        status: 'ACTIVE'
+                    },
+                    {
+                        userId: userId,
+                        role: 'PARTICIPANT',
+                        joinedAt: new Date(),
+                        status: 'ACTIVE'
+                    }
+                ]
+            });
+
+            await room.save();
+            await room.populate('participants.userId', 'name email avatar role');
+
+            console.log(`✅ [DIRECT_ROOM] Created room ${room._id}`);
+            return successResponse(res, { room }, 'Room created', 201);
+        }
+
+        const { name, type, tenantId, participants } = req.body;
+
+        if (!name || !tenantId) {
+            return errorResponse(res, MESSAGE.REQUIRED_FIELDS, 400);
+        }
+
+        const roomParticipants = participants && participants.length > 0
+            ? participants
+            : [{ userId: req.user._id, role: 'OWNER' }];
+
+        const initiatorExists = roomParticipants.some(
+            p => p.userId.toString() === req.user._id.toString()
+        );
+
+        if (!initiatorExists) {
+            roomParticipants.push({
+                userId: req.user._id,
+                role: 'OWNER',
+                joinedAt: new Date(),
+                status: 'ACTIVE'
+            });
+        }
+
+        const room = new Room({
+            name,
+            type: type || 'GROUP',
+            tenantId,
+            participants: roomParticipants
+        });
+
+        await room.save();
+        await room.populate('participants.userId', 'name email avatar role');
+
+        console.log(`✅ [GROUP_ROOM] Created room ${room._id}`);
+        return successResponse(res, { room }, MESSAGE.ROOM_CREATED, 201);
+
+    } catch (error) {
+        console.error('Error in createOrGetRoom:', error);
+        next(error);
+    }
+};
+
+
+
+
+
 // ✅ EXPORT ALL FUNCTIONS
 export default {
-    getAvailableUsersToChat,  // ✅ NEW
+    getAvailableUsersToChat,
     getAllActiveRooms,        // ✅ NEW (replaces getRoomsByRole)
-    createDirectRoom,         // ✅ IMPROVED (replaces createOrGetDirectRoom)
-    createGroupRoom,          // ✅ IMPROVED
-    createAdminChat,          // ✅ IMPROVED (replaces createOrGetAdminChatRoom)
-    getRoomMessages,
+    createDirectRoom,
+    createGroupRoom,
+    createAdminChat,
     searchMessages,
     markRoomAsRead,
     getAllChats,
-    getAdminChatsById
+    getAdminChatsById,
+    editMessage,
+    deleteMessage,
+    markMessageAsDelivered,
+    sendMessage,
+    createOrGetRoom,
+    getRoomMessages
 };
