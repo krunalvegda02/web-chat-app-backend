@@ -225,7 +225,14 @@ export const registerChatSocket = (io) => {
     // Join user's private room
     socket.join(`user:${userId}`);
 
-    // Send online users only to this socket (not broadcast)
+    // Broadcast user came online to all connected clients
+    broadcastToAll(io, 'user_status_changed', {
+      userId,
+      status: 'online',
+      timestamp: new Date()
+    });
+
+    // Send online users list to this socket
     socket.emit('online_users', {
       users: getOnlineUsers(),
       count: getOnlineUsers().length,
@@ -258,6 +265,7 @@ export const registerChatSocket = (io) => {
         activeRoomUsers.get(roomId).add(userId);
 
         console.log(`🏠 [ROOM] User ${userId} (${userRole}) joined room ${roomId}`);
+        console.log(`🔍 [DEBUG] Active users in room ${roomId}:`, Array.from(activeRoomUsers.get(roomId)));
 
         // Mark messages as read for this user
         const unreadMessages = await Message.find({
@@ -270,7 +278,10 @@ export const registerChatSocket = (io) => {
           const messageIds = unreadMessages.map(m => m._id);
           await Message.updateMany(
             { _id: { $in: messageIds } },
-            { $push: { readBy: { userId, readAt: new Date() } } }
+            { 
+              $push: { readBy: { userId, readAt: new Date() } },
+              $set: { status: 'read' }
+            }
           );
 
           // Group messages by sender and emit to each sender
@@ -389,13 +400,26 @@ export const registerChatSocket = (io) => {
           return socket.emit('error', { message: access.error });
         }
 
-        // Create message
+        // ✅ Check if recipient is online (connected to socket)
+        const recipientIds = room.participants
+          .filter(p => p.userId && p.userId._id && p.userId._id.toString() !== userId.toString())
+          .map(p => p.userId._id.toString());
+        
+        const recipientOnline = recipientIds.some(recipientId => userSockets.has(recipientId));
+        
+        console.log(`🔍 [DEBUG] Recipients:`, recipientIds);
+        console.log(`🔍 [DEBUG] Online users:`, Array.from(userSockets.keys()));
+        console.log(`🔍 [DEBUG] Sender: ${userId}, Recipient online: ${recipientOnline}`);
+        
+        // Create message with appropriate status
         const message = new Message({
           roomId,
           senderId: userId,
           content: content.trim(),
-          status: 'sent',
+          status: recipientOnline ? 'delivered' : 'sent',
         });
+        
+   
 
         await message.save();
         await message.populate('senderId', 'name email avatar role');
@@ -428,7 +452,7 @@ export const registerChatSocket = (io) => {
             role: message.senderId.role,
           },
           createdAt: message.createdAt,
-          status: 'sent',
+          status: recipientOnline ? 'delivered' : 'sent', // ✅ Show delivered if recipient is online
           readBy: [],
           reactions: [],
           isEdited: false,
@@ -451,7 +475,10 @@ export const registerChatSocket = (io) => {
             try {
               await Message.updateOne(
                 { _id: message._id },
-                { $push: { readBy: { $each: readByUsers.map(uid => ({ userId: uid, readAt: new Date() })) } } }
+                { 
+                  $push: { readBy: { $each: readByUsers.map(uid => ({ userId: uid, readAt: new Date() })) } },
+                  $set: { status: 'read' }
+                }
               );
 
               console.log(`📖 [AUTO_READ] Message ${message._id} marked as read in DB by ${readByUsers.length} users`);
@@ -471,6 +498,18 @@ export const registerChatSocket = (io) => {
           }, 1000);
         } else {
           console.log(`⚠️ [AUTO_READ] No active users to mark message ${message._id} as read`);
+        }
+        
+        // ✅ Emit message_delivered event to sender if recipient is online
+        if (recipientOnline) {
+          emitToUser(io, userId.toString(), 'message_delivered', {
+            roomId,
+            messageId: message._id,
+            status: 'delivered',
+            timestamp: new Date()
+          });
+          
+          console.log(`✅ [DELIVERED] Message ${message._id} created with delivered status (recipient online)`);
         }
 
         // Stop typing indicator for sender
@@ -630,7 +669,8 @@ export const registerChatSocket = (io) => {
                 userId,
                 readAt: new Date()
               }
-            }
+            },
+            $set: { status: 'read' }
           }
         );
 
@@ -842,6 +882,14 @@ export const registerChatSocket = (io) => {
     // ========== EVENT: Disconnect ==========
     socket.on('disconnect', () => {
       cleanupUser(io, userId);
+      
+      // Broadcast user went offline to all connected clients
+      broadcastToAll(io, 'user_status_changed', {
+        userId,
+        status: 'offline',
+        timestamp: new Date()
+      });
+      
       console.log(`🔌 [DISCONNECT] User ${userId} (${userRole}) disconnected`);
       console.log(`📊 [STATS] Remaining connections: ${io.of('/chat').sockets.size}`);
     });

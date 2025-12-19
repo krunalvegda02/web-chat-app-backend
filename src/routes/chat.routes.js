@@ -5,20 +5,33 @@ import { API } from '../constants/endpoints.js';
 
 const router = express.Router();
 
-// ✅ Universal routes (all roles)
-router.get(API.CHAT.AVAILABLE_USERS, verifyJWT, chatController.getAvailableUsersToChat);
-router.get(API.CHAT.ROOMS, verifyJWT, chatController.getAllActiveRooms);
-router.get(API.CHAT.ROOM_MESSAGES, verifyJWT, chatController.getRoomMessages);
-router.post(API.CHAT.MARK_AS_READ, verifyJWT, chatController.markRoomAsRead);
-router.get(API.CHAT.SEARCH_MESSAGES, verifyJWT, chatController.searchMessages);
+router.use(verifyJWT);
 
-// ✅ Room creation routes
-router.post(API.CHAT.DIRECT, verifyJWT, chatController.createDirectRoom);
-router.post(API.CHAT.ADMIN_CHAT, verifyJWT, chatController.createAdminChat);
+// Discovery routes
+router.get(API.CHAT.AVAILABLE_USERS, chatController.getAvailableUsersToChat);
 
-// ✅ Super admin routes
-router.get(API.CHAT.ALL_CHATS, verifyJWT, requireRole('SUPER_ADMIN'), chatController.getAllChats);
-router.get(API.CHAT.ADMIN_CHATS_BY_ID, verifyJWT, requireRole('SUPER_ADMIN'), chatController.getAdminChatsById);
+// Room listing
+router.get(API.CHAT.ROOMS, chatController.getAllActiveRooms);
+
+// Room creation
+router.post(API.CHAT.DIRECT, chatController.createDirectRoom);
+router.post(API.CHAT.ADMIN_CHAT, requireRole('ADMIN', 'TENANT_ADMIN', 'SUPER_ADMIN'), chatController.createAdminChat);
+
+// Message routes
+router.get(API.CHAT.ROOM_MESSAGES, chatController.getRoomMessages);
+router.post('/send-message', chatController.sendMessageWithMedia);
+router.get(API.CHAT.SEARCH_MESSAGES, chatController.searchMessages);
+
+// Read status
+router.post(API.CHAT.MARK_AS_READ, chatController.markRoomAsRead);
+
+// Super admin routes
+router.get(API.CHAT.ALL_CHATS, requireRole('SUPER_ADMIN'), chatController.getAllChats);
+router.get(API.CHAT.ADMIN_CHATS_BY_ID, requireRole('SUPER_ADMIN'), chatController.getAdminChatsById);
+
+// Admin member chat monitoring routes
+router.get('/admin/member-chats', requireRole('ADMIN', 'TENANT_ADMIN'), chatController.getAdminMemberChats);
+router.get('/admin/member-chats/:memberId', requireRole('ADMIN', 'TENANT_ADMIN'), chatController.getSpecificMemberChats);
+router.get('/admin/member-chats/:memberId/room/:roomId', requireRole('ADMIN', 'TENANT_ADMIN'), chatController.getMemberChatHistory);
 
 export default router;
-

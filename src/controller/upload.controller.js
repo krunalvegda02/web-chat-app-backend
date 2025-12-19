@@ -1,11 +1,6 @@
 import { uploadOnCloudinary } from '../utils/cloudinary.js';
 import { successResponse, errorResponse } from '../utils/response.js';
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const uploadThemeImage = async (req, res, next) => {
   try {
@@ -44,6 +39,54 @@ const uploadThemeImage = async (req, res, next) => {
   }
 };
 
+const uploadChatMedia = async (req, res, next) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return errorResponse(res, 'No files uploaded', 400);
+    }
+
+    const uploadedMedia = [];
+
+    for (const file of req.files) {
+      const fileType = file.mimetype.startsWith('image/') ? 'image' 
+        : file.mimetype.startsWith('video/') ? 'video'
+        : 'file';
+
+      const result = await uploadOnCloudinary(file.path, {
+        folder: `chat/${fileType}s`,
+        resource_type: fileType === 'video' ? 'video' : fileType === 'file' ? 'raw' : 'image'
+      });
+
+      uploadedMedia.push({
+        type: fileType,
+        url: result.secure_url,
+        mimeType: file.mimetype,
+        size: file.size,
+        publicId: result.public_id
+      });
+
+      // Clean up temp file
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
+    }
+
+    return successResponse(res, { media: uploadedMedia }, 'Files uploaded successfully');
+
+  } catch (error) {
+    // Clean up files if upload fails
+    if (req.files) {
+      req.files.forEach(file => {
+        if (file.path && fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
+    }
+    next(error);
+  }
+};
+
 export default {
   uploadThemeImage,
+  uploadChatMedia,
 };

@@ -1,0 +1,13 @@
+{
+  "watch": ["src"],
+  "ignore": [
+    "node_modules",
+    "public",
+    "public/temp",
+    ".git",
+    ".env"
+  ],
+  "ext": "js,json",
+  "delay": 1500,
+  "signal": "SIGTERM"
+}

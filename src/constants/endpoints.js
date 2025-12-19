@@ -49,24 +49,27 @@ const API = {
 
 
     },
+
     CHAT: {
         AVAILABLE_USERS: "/available-users",
         ROOMS: "/rooms",
         DIRECT: "/direct",
         ADMIN_CHAT: "/admin-chat",
-        CREATE_GET_ROOM: "/rooms",
-        ROOM_DETAILS: "/rooms/:roomId",
+
         ROOM_MESSAGES: "/rooms/:roomId/messages",
         MARK_AS_READ: "/rooms/:roomId/mark-as-read",
         SEARCH_MESSAGES: "/rooms/:roomId/search",
-        ALL_CHATS: "/all-chats",
-        ADMIN_CHATS_BY_ID: "/admin/:adminId/chats",
-        ADMIN_ROOMS: "/admin-rooms",
-        CREATE_ADMIN_ROOM: "/admin-rooms",
-        ADMIN_CHATS: "/admin/:adminId/chats",
-        ADMIN_CHAT_ROOMS: "/admin-chat-rooms",
-        CREATE_OR_GET_ADMIN_ROOM: "/admin-rooms"
+
+        // SUPER ADMIN
+        ALL_CHATS: "/admin/all-chats",
+        ADMIN_CHATS_BY_ID: "/admin/chats/:adminId",
+
+        // ADMIN / TENANT_ADMIN (NEW – MEMBER MONITORING)
+        ADMIN_MEMBER_CHATS: "/admin/member-chats",
+        SPECIFIC_MEMBER_CHATS: "/admin/member-chats/:memberId",
+        MEMBER_CHAT_HISTORY: "/admin/member-chats/:memberId/rooms/:roomId/messages"
     },
+
 };
 
 

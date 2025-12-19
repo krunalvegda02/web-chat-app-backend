@@ -486,13 +486,21 @@ export const getRoomMessages = async (req, res, next) => {
             .populate('replyTo')
             .skip(skip)
             .limit(limit)
-            .sort({ createdAt: 1 });
+            .sort({ createdAt: 1 })
+            .lean();
 
         const total = await Message.countDocuments({ roomId, isDeleted: false });
 
+        // ✅ Add isRead flag for current user
+        const messagesWithReadStatus = messages.map(msg => ({
+            ...msg,
+            isRead: msg.readBy?.some(r => r.userId?._id?.toString() === req.user._id.toString()) || false,
+            status: msg.readBy?.some(r => r.userId?._id?.toString() === req.user._id.toString()) ? 'read' : msg.status
+        }));
+
         return successResponse(res, {
             roomId,
-            messages,
+            messages: messagesWithReadStatus,
             pagination: {
                 page,
                 limit,
@@ -679,7 +687,7 @@ export const getAdminChatsById = async (req, res, next) => {
 
         // ✅ Verify admin exists
         const admin = await User.findById(adminId);
-        if (!admin || (admin.role !== 'ADMIN' && admin.role !== 'TENANT_ADMIN')) {
+        if (!admin || (admin.role !== 'ADMIN')) {
             return errorResponse(res, "Admin not found", 404);
         }
 
@@ -692,31 +700,40 @@ export const getAdminChatsById = async (req, res, next) => {
             .sort({ lastMessageTime: -1 })
             .lean();
 
-        // Format chat list
-        const chats = rooms.flatMap(room => {
-            const otherParticipants = room.participants.filter(p =>
-                p.userId && p.userId._id.toString() !== adminId
-            );
+        // Format chat list with message count
+        const chats = await Promise.all(
+            rooms.flatMap(room => {
+                const otherParticipants = room.participants.filter(p =>
+                    p.userId && p.userId._id.toString() !== adminId
+                );
 
-            return otherParticipants.map(participant => ({
-                roomId: room._id,
-                roomType: room.type,
-                participantId: participant.userId._id,
-                participantName: participant.userId.name,
-                participantEmail: participant.userId.email,
-                participantAvatar: participant.userId.avatar,
-                participantRole: participant.userId.role,
-                lastMessage: room.lastMessage?.content || "No messages yet",
-                lastMessageTime: room.lastMessageTime || room.createdAt,
-                messageCount: room.messageCount || 0
-            }));
-        });
+                return otherParticipants.map(async participant => {
+                    const messageCount = await Message.countDocuments({
+                        roomId: room._id,
+                        isDeleted: false
+                    });
+
+                    return {
+                        roomId: room._id,
+                        roomType: room.type,
+                        participantId: participant.userId._id,
+                        participantName: participant.userId.name,
+                        participantEmail: participant.userId.email,
+                        participantAvatar: participant.userId.avatar,
+                        participantRole: participant.userId.role,
+                        lastMessage: room.lastMessage?.content || "No messages yet",
+                        lastMessageTime: room.lastMessageTime || room.createdAt,
+                        messageCount
+                    };
+                });
+            })
+        );
 
         return successResponse(res, {
             adminId,
             adminName: admin.name,
-            chats,
-            count: chats.length
+            chats: chats.filter(c => c),
+            count: chats.filter(c => c).length
         });
 
     } catch (error) {
@@ -727,12 +744,11 @@ export const getAdminChatsById = async (req, res, next) => {
 
 
 
-// ✅ NEW: Send message with media support
-export const sendMessage = async (req, res, next) => {
+export const sendMessageWithMedia = async (req, res, next) => {
     try {
         const { roomId, content, type, media, replyTo } = req.body;
 
-        if (!roomId || (!content && !media)) {
+        if (!roomId || (!content && (!media || media.length === 0))) {
             return errorResponse(res, 'Room ID and content or media is required', 400);
         }
 
@@ -747,29 +763,24 @@ export const sendMessage = async (req, res, next) => {
             return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
         }
 
-        // ✅ Create message with proper status (starts as 'sent')
         const message = new Message({
             roomId,
             senderId: req.user._id,
             content: content || '',
             type: type || 'text',
             media: media || [],
-            status: 'sent', // ✅ Starts as 'sent' after successfully stored
+            status: 'sent',
             sentAt: new Date(),
             replyTo: replyTo || undefined
         });
 
         await message.save();
         await message.populate('senderId', 'name email avatar role');
-        await message.populate('media');
 
-        // ✅ Update room's last message
         await Room.findByIdAndUpdate(roomId, {
             lastMessage: message._id,
             lastMessageTime: new Date()
         });
-
-        console.log(`✅ Message created: ${message._id} with status 'sent'`);
 
         return successResponse(res, { message }, 'Message sent', 201);
 
@@ -990,10 +1001,362 @@ const createOrGetRoom = async (req, res, next) => {
 
 
 
+
+
+/* ====================================================
+   1. GET ALL MEMBER CHATS (FOR ADMIN)
+   ✅ Admin only
+   ✅ Shows all member conversations in tenant
+   ✅ Returns formatted chat list with stats
+   ✅ Pagination support
+   ==================================================== */
+export const getAdminMemberChats = async (req, res, next) => {
+    try {
+        // ✅ Authorization: ADMIN/TENANT_ADMIN only
+        if (!['ADMIN', 'TENANT_ADMIN'].includes(req.user.role)) {
+            return errorResponse(res, "Only admins can view member chats", 403);
+        }
+
+        const tenantId = req.user.tenantId;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const skip = (page - 1) * limit;
+
+        if (page < 1 || limit < 1 || limit > 100) {
+            return errorResponse(res, "Invalid pagination parameters", 400);
+        }
+
+        // ✅ Get all members (excluding admin)
+        const members = await User.find({
+            tenantId,
+            role: 'USER',
+            status: 'ACTIVE',
+            _id: { $ne: req.user._id }
+        })
+            .select('_id name email avatar')
+            .lean();
+
+        const memberIds = members.map(m => m._id);
+
+        if (memberIds.length === 0) {
+            return successResponse(res, {
+                members: [],
+                totalMembers: 0,
+                pagination: { page, limit, total: 0, pages: 0 }
+            });
+        }
+
+        // ✅ Get all rooms where members are participants
+        const rooms = await Room.find({
+            tenantId,
+            'participants.userId': { $in: memberIds }
+        })
+            .populate('participants.userId', 'name email avatar role')
+            .populate('lastMessage')
+            .sort({ lastMessageTime: -1 })
+            .lean();
+
+        // ✅ Group chats by member
+        const memberChatsMap = new Map();
+
+        rooms.forEach(room => {
+            room.participants.forEach(participant => {
+                const userId = participant.userId?._id?.toString();
+
+                if (userId && memberIds.some(m => m.toString() === userId)) {
+                    if (!memberChatsMap.has(userId)) {
+                        memberChatsMap.set(userId, []);
+                    }
+                    memberChatsMap.get(userId).push(room);
+                }
+            });
+        });
+
+        // ✅ Format member chats
+        const memberChatsData = Array.from(memberChatsMap.entries())
+            .map(([memberId, memberRooms]) => {
+                const member = members.find(m => m._id.toString() === memberId);
+
+                // Calculate stats
+                const totalChats = memberRooms.length;
+                const directChats = memberRooms.filter(r => r.type === 'DIRECT' || r.type === 'ADMIN_CHAT').length;
+                const groupChats = memberRooms.filter(r => r.type === 'GROUP').length;
+
+                const totalMessages = memberRooms.reduce((sum, room) => {
+                    return sum + (room.messageCount || 0);
+                }, 0);
+
+                const lastActive = memberRooms.length > 0
+                    ? memberRooms[0].lastMessageTime
+                    : member?.createdAt;
+
+                return {
+                    memberId: member._id,
+                    memberName: member.name,
+                    memberEmail: member.email,
+                    memberAvatar: member.avatar,
+                    totalChats,
+                    directChats,
+                    groupChats,
+                    totalMessages,
+                    lastActive,
+                    recentChats: memberRooms.slice(0, 5).map(room => ({
+                        roomId: room._id,
+                        roomName: room.name,
+                        roomType: room.type,
+                        participantCount: room.participants.length,
+                        lastMessage: room.lastMessage?.content?.substring(0, 50) || "No messages",
+                        lastMessageTime: room.lastMessageTime,
+                        messageCount: room.messageCount || 0,
+                        participants: room.participants.map(p => ({
+                            userId: p.userId?._id,
+                            name: p.userId?.name,
+                            role: p.role
+                        }))
+                    }))
+                };
+            })
+            .sort((a, b) => new Date(b.lastActive) - new Date(a.lastActive))
+            .slice(skip, skip + limit);
+
+        const total = memberChatsMap.size;
+
+        return successResponse(res, {
+            memberChats: memberChatsData,
+            pagination: {
+                page,
+                limit,
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in getAdminMemberChats:', error);
+        next(error);
+    }
+};
+
+
+/* ====================================================
+   2. GET SPECIFIC MEMBER CHATS (DETAILED VIEW)
+   ✅ Admin views all chats of specific member
+   ✅ Returns: All conversations + message count
+   ✅ Filter by: Room type (direct, group, admin)
+   ==================================================== */
+export const getSpecificMemberChats = async (req, res, next) => {
+    try {
+        const { memberId } = req.params;
+        const { filter } = req.query; // 'direct', 'group', 'admin', 'all'
+
+        // ✅ Authorization
+        if (!['ADMIN', 'TENANT_ADMIN'].includes(req.user.role)) {
+            return errorResponse(res, "Only admins can view member chats", 403);
+        }
+
+        // ✅ Verify member exists in tenant
+        const member = await User.findOne({
+            _id: memberId,
+            tenantId: req.user.tenantId,
+            role: 'USER'
+        }).select('_id name email avatar');
+
+        if (!member) {
+            return errorResponse(res, "Member not found in your tenant", 404);
+        }
+
+        // ✅ Build filter query
+        const filterQuery = {
+            tenantId: req.user.tenantId,
+            'participants.userId': memberId
+        };
+
+        if (filter && filter !== 'all') {
+            if (filter === 'direct') {
+                filterQuery.type = { $in: ['DIRECT', 'ADMIN_CHAT'] };
+            } else if (filter === 'group') {
+                filterQuery.type = 'GROUP';
+            } else if (filter === 'admin') {
+                filterQuery.type = 'ADMIN_CHAT';
+            }
+        }
+
+        // ✅ Get all member chats
+        const chats = await Room.find(filterQuery)
+            .populate('participants.userId', 'name email avatar role')
+            .populate('lastMessage')
+            .sort({ lastMessageTime: -1 })
+            .lean();
+
+        // ✅ Format chat data with message count
+        const formattedChats = await Promise.all(
+            chats.map(async (chat) => {
+                const messageCount = await Message.countDocuments({
+                    roomId: chat._id,
+                    isDeleted: false
+                });
+
+                // Get other participants
+                const otherParticipants = chat.participants.filter(p =>
+                    p.userId && p.userId._id.toString() !== memberId
+                );
+
+                return {
+                    roomId: chat._id,
+                    roomName: chat.name,
+                    roomType: chat.type,
+                    createdAt: chat.createdAt,
+                    lastMessageTime: chat.lastMessageTime,
+                    lastMessage: chat.lastMessage?.content?.substring(0, 100) || "No messages",
+                    messageCount,
+                    participantCount: chat.participants.length,
+                    participants: chat.participants.map(p => ({
+                        userId: p.userId?._id,
+                        name: p.userId?.name,
+                        email: p.userId?.email,
+                        role: p.role
+                    })),
+                    otherParticipants: otherParticipants.map(p => ({
+                        userId: p.userId?._id,
+                        name: p.userId?.name,
+                        avatar: p.userId?.avatar,
+                        role: p.userId?.role
+                    }))
+                };
+            })
+        );
+
+        // ✅ Calculate stats
+        const stats = {
+            totalChats: formattedChats.length,
+            totalMessages: formattedChats.reduce((sum, chat) => sum + chat.messageCount, 0),
+            directChats: formattedChats.filter(c => c.roomType === 'DIRECT' || c.roomType === 'ADMIN_CHAT').length,
+            groupChats: formattedChats.filter(c => c.roomType === 'GROUP').length,
+            lastActive: formattedChats.length > 0 ? formattedChats[0].lastMessageTime : null
+        };
+
+        return successResponse(res, {
+            member: {
+                id: member._id,
+                name: member.name,
+                email: member.email,
+                avatar: member.avatar
+            },
+            stats,
+            chats: formattedChats,
+            filter: filter || 'all'
+        });
+
+    } catch (error) {
+        console.error('❌ Error in getSpecificMemberChats:', error);
+        next(error);
+    }
+};
+
+
+/* ====================================================
+   3. GET MEMBER CHAT HISTORY (MESSAGES)
+   ✅ View all messages in member's chat room
+   ✅ Pagination support
+   ✅ Admin monitoring capability
+   ==================================================== */
+export const getMemberChatHistory = async (req, res, next) => {
+    try {
+        const { memberId, roomId } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 50;
+        const skip = (page - 1) * limit;
+
+        // ✅ Authorization
+        if (!['ADMIN', 'TENANT_ADMIN'].includes(req.user.role)) {
+            return errorResponse(res, "Only admins can view chat history", 403);
+        }
+
+        // ✅ Verify member exists
+        const member = await User.findOne({
+            _id: memberId,
+            tenantId: req.user.tenantId,
+            role: 'USER'
+        });
+
+        if (!member) {
+            return errorResponse(res, "Member not found", 404);
+        }
+
+        // ✅ Verify room exists and member is participant
+        const room = await Room.findOne({
+            _id: roomId,
+            tenantId: req.user.tenantId,
+            'participants.userId': memberId
+        });
+
+        if (!room) {
+            return errorResponse(res, "Room not found or member is not participant", 404);
+        }
+
+        // ✅ Get messages
+        const messages = await Message.find({
+            roomId,
+            isDeleted: false
+        })
+            .populate('senderId', 'name email avatar role')
+            .sort({ createdAt: 1 })
+            .skip(skip)
+            .limit(limit)
+            .lean();
+
+        const total = await Message.countDocuments({
+            roomId,
+            isDeleted: false
+        });
+
+        return successResponse(res, {
+            member: {
+                id: member._id,
+                name: member.name,
+                email: member.email
+            },
+            room: {
+                id: room._id,
+                name: room.name,
+                type: room.type,
+                createdAt: room.createdAt
+            },
+            messages: messages.map(msg => ({
+                messageId: msg._id,
+                sender: {
+                    id: msg.senderId?._id,
+                    name: msg.senderId?.name,
+                    email: msg.senderId?.email,
+                    role: msg.senderId?.role
+                },
+                content: msg.content,
+                type: msg.type,
+                createdAt: msg.createdAt,
+                editedAt: msg.editedAt,
+                status: msg.status,
+                reactions: msg.reactions || [],
+                readBy: msg.readBy?.length || 0
+            })),
+            pagination: {
+                page,
+                limit,
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in getMemberChatHistory:', error);
+        next(error);
+    }
+};
+
+
 // ✅ EXPORT ALL FUNCTIONS
 export default {
     getAvailableUsersToChat,
-    getAllActiveRooms,        // ✅ NEW (replaces getRoomsByRole)
+    getAllActiveRooms,
     createDirectRoom,
     createGroupRoom,
     createAdminChat,
@@ -1004,7 +1367,12 @@ export default {
     editMessage,
     deleteMessage,
     markMessageAsDelivered,
-    sendMessage,
+    sendMessageWithMedia,
     createOrGetRoom,
-    getRoomMessages
+    getRoomMessages,
+
+
+    getAdminMemberChats,
+    getSpecificMemberChats,
+    getMemberChatHistory,
 };
