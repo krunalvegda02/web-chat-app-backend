@@ -20,6 +20,7 @@ export const getAvailableUsersToChat = async (req, res, next) => {
         const userRole = req.user.role;
         const userId = req.user._id;
         const tenantId = req.user.tenantId;
+        const contactsOnly = req.query;
 
         let availableUsers = [];
 
@@ -68,6 +69,14 @@ export const getAvailableUsersToChat = async (req, res, next) => {
                 .lean();
 
             availableUsers = tenantAdmin ? [tenantAdmin, ...otherMembers] : otherMembers;
+        }
+
+        if (contactsOnly === 'true') {
+            const user = await User.findById(userId).select('contacts');
+            const contactIds = user.contacts.map(c => c.userId);
+            availableUsers = availableUsers.filter(u =>
+                contactIds.some(id => id.toString() === u._id.toString())
+            );
         }
 
         // Remove duplicates
@@ -121,7 +130,7 @@ export const getAllActiveRooms = async (req, res, next) => {
         const total = await Room.countDocuments(query);
 
         // Format rooms with display info
-        const formattedRooms = rooms.map(room => {
+        const formattedRooms = await Promise.all(rooms.map(async room => {
             const unreadCount = room.unreadCount?.get?.(userId.toString()) || 0;
 
             // Get display name based on room type
@@ -138,6 +147,25 @@ export const getAllActiveRooms = async (req, res, next) => {
                 p.userId && p.userId._id && p.userId._id.toString() !== userId.toString()
             );
 
+            // Get first unread message if there are unread messages
+            let lastUnreadMessage = null;
+
+            if (unreadCount > 0) {
+                lastUnreadMessage = await Message.findOne({
+                    roomId: room._id,
+                    senderId: { $ne: userId },
+                    isDeleted: false,
+                    status: { $ne: 'read' } // ✅ SINGLE SOURCE OF TRUTH
+                })
+                    .sort({ createdAt: -1 }) // last unread
+                    .select('content createdAt status')
+                    .lean();
+            }
+
+
+
+
+
             return {
                 _id: room._id,
                 name: displayName,
@@ -147,12 +175,16 @@ export const getAllActiveRooms = async (req, res, next) => {
                 lastMessage: room.lastMessage,
                 lastMessageTime: room.lastMessageTime,
                 lastMessagePreview: room.lastMessage?.content?.substring(0, 50) || "No messages yet",
-                unreadCount,
+                unreadCount: unreadCount,
+                lastUnreadMessage: lastUnreadMessage ? {
+                    content: lastUnreadMessage.content?.substring(0, 50) || '',
+                    createdAt: lastUnreadMessage.createdAt
+                } : null,
                 participantCount: room.participants.length,
                 createdAt: room.createdAt,
                 isPinned: room.isPinned || false
             };
-        });
+        }));
 
         return successResponse(res, {
             rooms: formattedRooms,
@@ -202,6 +234,14 @@ export const createDirectRoom = async (req, res, next) => {
 
         if (otherUser.status !== 'ACTIVE') {
             return errorResponse(res, "User is not active", 400);
+        }
+
+        const isBlocked = otherUser.blockedUsers?.some(
+            b => b.userId?.toString() === currentUserId.toString()
+        );
+
+        if (isBlocked) {
+            return errorResponse(res, "User has blocked you", 403);
         }
 
         // ✅ Validation: Permission check based on roles
@@ -465,7 +505,7 @@ export const getRoomMessages = async (req, res, next) => {
     try {
         const { roomId } = req.params;
         const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 50;
+        const limit = parseInt(req.query.limit) || 60;
         const skip = (page - 1) * limit;
 
         const room = await Room.findById(roomId);
@@ -491,12 +531,41 @@ export const getRoomMessages = async (req, res, next) => {
 
         const total = await Message.countDocuments({ roomId, isDeleted: false });
 
-        // ✅ Add isRead flag for current user
-        const messagesWithReadStatus = messages.map(msg => ({
-            ...msg,
-            isRead: msg.readBy?.some(r => r.userId?._id?.toString() === req.user._id.toString()) || false,
-            status: msg.readBy?.some(r => r.userId?._id?.toString() === req.user._id.toString()) ? 'read' : msg.status
-        }));
+        // ✅ Optimize media URLs with Cloudinary transformations
+        const messagesWithReadStatus = messages.map(msg => {
+            const optimizedMsg = {
+                ...msg,
+                isRead: msg.status === 'read',
+            };
+
+            // Optimize media URLs for better performance
+            if (msg.media && msg.media.length > 0) {
+                optimizedMsg.media = msg.media.map(mediaItem => {
+                    if (mediaItem.url && mediaItem.url.includes('cloudinary.com')) {
+                        const isImage = mediaItem.type === 'image';
+                        const isVideo = mediaItem.type === 'video';
+                        
+                        // Add Cloudinary transformations for thumbnails
+                        if (isImage) {
+                            return {
+                                ...mediaItem,
+                                thumbnail: mediaItem.url.replace('/upload/', '/upload/w_400,h_400,c_limit,q_auto,f_auto/'),
+                                url: mediaItem.url.replace('/upload/', '/upload/q_auto,f_auto/')
+                            };
+                        } else if (isVideo) {
+                            return {
+                                ...mediaItem,
+                                thumbnail: mediaItem.url.replace('/upload/', '/upload/w_400,h_400,c_fill,so_0,q_auto,f_jpg/'),
+                                url: mediaItem.url.replace('/upload/', '/upload/q_auto/')
+                            };
+                        }
+                    }
+                    return mediaItem;
+                });
+            }
+
+            return optimizedMsg;
+        });
 
         return successResponse(res, {
             roomId,
@@ -505,7 +574,8 @@ export const getRoomMessages = async (req, res, next) => {
                 page,
                 limit,
                 total,
-                pages: Math.ceil(total / limit)
+                pages: Math.ceil(total / limit),
+                hasMore: page < Math.ceil(total / limit)
             }
         });
 
@@ -777,10 +847,38 @@ export const sendMessageWithMedia = async (req, res, next) => {
         await message.save();
         await message.populate('senderId', 'name email avatar role');
 
-        await Room.findByIdAndUpdate(roomId, {
-            lastMessage: message._id,
-            lastMessageTime: new Date()
-        });
+        room.lastMessage = message._id;
+        room.lastMessageTime = new Date();
+        await room.save();
+
+        // Broadcast via socket
+        const io = req.app.get('io');
+        if (io) {
+            const messageData = {
+                _id: message._id,
+                roomId,
+                content: message.content,
+                type: message.type,
+                media: message.media,
+                senderId: message.senderId._id,
+                sender: {
+                    _id: message.senderId._id,
+                    name: message.senderId.name,
+                    email: message.senderId.email,
+                    avatar: message.senderId.avatar,
+                    role: message.senderId.role,
+                },
+                createdAt: message.createdAt,
+                status: 'sent',
+                readBy: [],
+                reactions: [],
+                isEdited: false,
+                deletedAt: null,
+                optimistic: false,
+            };
+            io.of('/chat').to(`room:${roomId}`).emit('message_received', messageData);
+            console.log(`📡 [MEDIA_MSG] Broadcasted to room ${roomId}`);
+        }
 
         return successResponse(res, { message }, 'Message sent', 201);
 
@@ -1354,6 +1452,37 @@ export const getMemberChatHistory = async (req, res, next) => {
 
 
 // ✅ EXPORT ALL FUNCTIONS
+/* ====================================================
+   CREATE CHAT FROM CONTACT
+   ✅ Creates direct chat room from contact list
+   ✅ Verifies contact relationship exists
+   ==================================================== */
+export const createChatFromContact = async (req, res, next) => {
+    try {
+        const { contactId } = req.body;
+
+        if (!contactId) {
+            return errorResponse(res, "Contact ID is required", 400);
+        }
+
+        // Verify contact exists in user's contact list
+        const currentUser = await User.findById(req.user._id).select('contacts');
+        const isContact = currentUser.contacts?.some(
+            c => c.userId?.toString() === contactId.toString()
+        );
+
+        if (!isContact) {
+            return errorResponse(res, "User is not in your contacts", 403);
+        }
+
+        // Delegate to createDirectRoom
+        req.body.userId = contactId;
+        return createDirectRoom(req, res, next);
+    } catch (error) {
+        next(error);
+    }
+};
+
 export default {
     getAvailableUsersToChat,
     getAllActiveRooms,
@@ -1370,9 +1499,8 @@ export default {
     sendMessageWithMedia,
     createOrGetRoom,
     getRoomMessages,
-
-
     getAdminMemberChats,
     getSpecificMemberChats,
     getMemberChatHistory,
+    createChatFromContact,
 };

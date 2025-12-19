@@ -8,7 +8,7 @@ const roomSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
-    
+
     type: {
       type: String,
       enum: ['DIRECT', 'GROUP', 'ADMIN_CHAT'],
@@ -23,6 +23,11 @@ const roomSchema = new mongoose.Schema(
       sparse: true,
       index: true
     },
+    createdVia: {
+      type: String,
+      enum: ['direct', 'contact', 'group', 'admin'],
+      default: 'direct'
+    },
 
     // ✅ FIXED: Participants with role information
     participants: [
@@ -32,18 +37,18 @@ const roomSchema = new mongoose.Schema(
           ref: 'User',
           required: true
         },
-        
+
         role: {
           type: String,
           enum: ['INITIATOR', 'PARTICIPANT', 'MEMBER', 'ADMIN', 'OWNER'],
           default: 'PARTICIPANT'
         },
-        
+
         joinedAt: {
           type: Date,
           default: Date.now
         },
-        
+
         status: {
           type: String,
           enum: ['ACTIVE', 'INACTIVE', 'LEFT'],

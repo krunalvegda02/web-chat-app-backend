@@ -1,8 +1,15 @@
+
+
 // src/utils/validators.js
 const isValidEmail = (email) => {
   const emailRegex = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
   return emailRegex.test(email);
 };
+
+const isValidPhone = (code) => {
+  const phoneRegex = /^\+?[1-9]\d{1,14}$/;
+  return phoneRegex.test(code);
+}
 
 const isValidPassword = (password) => {
   return password && password.length >= 6;
@@ -24,10 +31,17 @@ const validatePassword = (password) => {
   return true;
 };
 
+const validatePhone = (phone) => {
+  if (!phone) throw new Error('Phone number is required');
+  if (!isValidPhone(phone)) throw new Error('Invalid phone number format');
+  return true;
+};
+
 export {
   isValidEmail,
   isValidPassword,
   isValidObjectId,
   validateEmail,
   validatePassword,
+  validatePhone
 };

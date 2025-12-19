@@ -15,6 +15,7 @@ router.get(API.CHAT.ROOMS, chatController.getAllActiveRooms);
 
 // Room creation
 router.post(API.CHAT.DIRECT, chatController.createDirectRoom);
+router.post('/contact-chat', chatController.createChatFromContact);
 router.post(API.CHAT.ADMIN_CHAT, requireRole('ADMIN', 'TENANT_ADMIN', 'SUPER_ADMIN'), chatController.createAdminChat);
 
 // Message routes

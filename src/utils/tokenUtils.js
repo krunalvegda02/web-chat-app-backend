@@ -4,8 +4,12 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import MESSAGE from "../constants/message.js";
 
-const jwtSecret = process.env.JWT_SECRET
-const jwtExpire = process.env.JWT_EXPIRE
+const jwtSecret = process.env.JWT_SECRET;
+const jwtExpire = process.env.JWT_EXPIRE;
+
+// ============================================================================
+// EXISTING FUNCTIONS (Keep these as-is)
+// ============================================================================
 
 /**
  * Generate JWT Access Token
@@ -172,7 +176,140 @@ const cleanupExpiredTokens = async () => {
     }
 };
 
+// ============================================================================
+// ✅ NEW FUNCTIONS FOR CONTACT SUPPORT (Add these)
+// ============================================================================
+
+/**
+ * Generate 6-digit phone verification code
+ * Used for: SMS verification, OTP reset
+ */
+const generatePhoneVerificationToken = () => {
+    // Generate random 6-digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    return code;
+};
+
+/**
+ * Generate password reset token (secure 32-byte hex)
+ * Used for: Email/SMS password reset links
+ * Expires in 30 minutes
+ */
+const generatePasswordResetToken = () => {
+    // Generate cryptographically secure random token
+    const token = crypto.randomBytes(32).toString('hex');
+    return token;
+};
+
+/**
+ * Generate email verification token (secure hex)
+ * Used for: Email address verification
+ */
+const generateEmailVerificationToken = () => {
+    const token = crypto.randomBytes(32).toString('hex');
+    return token;
+};
+
+/**
+ * Validate phone verification code format
+ * Code must be 6 digits
+ */
+const isValidPhoneCode = (code) => {
+    return /^\d{6}$/.test(code);
+};
+
+/**
+ * Validate password reset token format
+ * Token must be 64-character hex (32 bytes)
+ */
+const isValidResetToken = (token) => {
+    return /^[a-f0-9]{64}$/.test(token);
+};
+
+/**
+ * Check if token is expired
+ * expiryTime: Date object or timestamp
+ */
+const isTokenExpired = (expiryTime) => {
+    if (!expiryTime) return true;
+    
+    const expiryDate = typeof expiryTime === 'number' 
+        ? new Date(expiryTime) 
+        : expiryTime;
+    
+    return new Date() > expiryDate;
+};
+
+/**
+ * Get token expiry time (30 minutes from now)
+ * Used for: Password reset token expiry
+ */
+const getTokenExpiry = (minutesFromNow = 30) => {
+    return new Date(Date.now() + minutesFromNow * 60 * 1000);
+};
+
+/**
+ * Get phone verification code expiry time (10 minutes)
+ * Used for: OTP expiry
+ */
+const getPhoneCodeExpiry = (minutesFromNow = 10) => {
+    return new Date(Date.now() + minutesFromNow * 60 * 1000);
+};
+
+/**
+ * Verify JWT and extract user data
+ * Returns null if invalid or expired
+ */
+const verifyAndDecodeToken = (token) => {
+    try {
+        if (!token) return null;
+        
+        // Remove "Bearer " prefix if present
+        const cleanToken = token.startsWith('Bearer ') 
+            ? token.slice(7) 
+            : token;
+        
+        return jwt.verify(cleanToken, jwtSecret);
+    } catch (error) {
+        console.error('Error verifying token:', error.message);
+        return null;
+    }
+};
+
+/**
+ * Generate secure session token for 2FA
+ * Used for: Two-factor authentication sessions
+ */
+const generateSessionToken = () => {
+    return crypto.randomBytes(32).toString('hex');
+};
+
+/**
+ * Hash a token for secure storage
+ * Used for: Storing tokens in database
+ */
+const hashToken = (token) => {
+    return crypto
+        .createHash('sha256')
+        .update(token)
+        .digest('hex');
+};
+
+/**
+ * Validate hashed token
+ * Used for: Comparing stored vs provided tokens
+ */
+const validateHashedToken = (token, hashedToken) => {
+    const hash = hashToken(token);
+    return hash === hashedToken;
+};
+
+// ============================================================================
+// EXPORTS - All functions
+// ============================================================================
+
 export {
+    // Existing functions
     generateAccessToken,
     generateRefreshToken,
     saveRefreshToken,
@@ -183,4 +320,18 @@ export {
     revokeUserSessionByAgent,
     cleanupExpiredTokens,
     decodeToken,
+    
+    // ✅ New contact/phone/password reset functions
+    generatePhoneVerificationToken,
+    generatePasswordResetToken,
+    generateEmailVerificationToken,
+    isValidPhoneCode,
+    isValidResetToken,
+    isTokenExpired,
+    getTokenExpiry,
+    getPhoneCodeExpiry,
+    verifyAndDecodeToken,
+    generateSessionToken,
+    hashToken,
+    validateHashedToken,
 };

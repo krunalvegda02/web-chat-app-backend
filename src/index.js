@@ -44,6 +44,9 @@ const startServer = async () => {
       pingInterval: 25000,
     });
 
+    // Store io in app for controller access
+    app.set('io', io);
+    
     setupSockets(io);
 
     // Start listening ONCE

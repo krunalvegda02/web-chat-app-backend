@@ -112,7 +112,9 @@ const emitToRoom = (io, roomId, event, data) => {
  * Emit event to specific user
  */
 const emitToUser = (io, userId, event, data) => {
-  io.of('/chat').to(`user:${userId}`).emit(event, data);
+  const room = `user:${userId}`;
+  io.of('/chat').to(room).emit(event, data);
+  console.log(`📤 [EMIT_TO_USER] Event: ${event}, User: ${userId}, Room: ${room}`);
 };
 
 /**
@@ -296,12 +298,14 @@ export const registerChatSocket = (io) => {
 
           // Emit messages_read event to each sender
           Object.keys(senderMessages).forEach(senderId => {
-            emitToUser(io, senderId, 'messages_read', {
+            const readData = {
               roomId,
               messageIds: senderMessages[senderId],
               readBy: userId,
               timestamp: new Date()
-            });
+            };
+            emitToUser(io, senderId, 'messages_read', readData);
+            console.log(`📡 [JOIN_READ] Emitted messages_read to ${senderId}:`, readData);
           });
 
           console.log(`📖 [READ] Marked ${messageIds.length} messages as read for user ${userId}`);
@@ -484,14 +488,14 @@ export const registerChatSocket = (io) => {
               console.log(`📖 [AUTO_READ] Message ${message._id} marked as read in DB by ${readByUsers.length} users`);
 
               // Emit messages_read to sender
-              emitToUser(io, userId.toString(), 'messages_read', {
+              const readData = {
                 roomId,
                 messageIds: [message._id],
                 readBy: readByUsers,
                 timestamp: new Date()
-              });
-
-              console.log(`📡 [AUTO_READ] Emitted messages_read to sender ${userId} for message ${message._id}`);
+              };
+              emitToUser(io, userId.toString(), 'messages_read', readData);
+              console.log(`📡 [AUTO_READ] Emitted messages_read to sender ${userId}:`, readData);
             } catch (err) {
               console.error(`❌ [AUTO_READ] Error:`, err);
             }
@@ -682,12 +686,14 @@ export const registerChatSocket = (io) => {
           // Emit messages_read to each sender
           senderIds.forEach(senderId => {
             if (senderId !== userId.toString()) {
-              emitToUser(io, senderId, 'messages_read', {
+              const readData = {
                 roomId,
                 messageIds,
                 readBy: userId,
                 timestamp: new Date()
-              });
+              };
+              emitToUser(io, senderId, 'messages_read', readData);
+              console.log(`📡 [MARK_READ] Emitted messages_read to ${senderId}:`, readData);
             }
           });
 
@@ -876,6 +882,108 @@ export const registerChatSocket = (io) => {
       } catch (error) {
         console.error(`❌ [DELETE_MESSAGE] Error: ${error.message}`);
         socket.emit('error', { message: 'Failed to delete message' });
+      }
+    });
+
+    // ========== EVENT: Call Initiate ==========
+    socket.on('call_initiate', async ({ targetUserId, callType, roomId }) => {
+      try {
+        if (!targetUserId || !callType) {
+          return socket.emit('error', { message: 'Target user and call type required' });
+        }
+
+        console.log(`📞 [CALL] ${userId} initiating ${callType} call to ${targetUserId}`);
+
+        emitToUser(io, targetUserId, 'call_incoming', {
+          callerId: userId,
+          callerName: socket.handshake.auth.userName || 'User',
+          callType,
+          roomId,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error(`❌ [CALL_INITIATE] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: Call Accepted ==========
+    socket.on('call_accepted', async ({ callerId }) => {
+      try {
+        console.log(`✅ [CALL] ${userId} accepted call from ${callerId}`);
+        emitToUser(io, callerId, 'call_accepted', {
+          userId,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error(`❌ [CALL_ACCEPTED] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: Call Rejected ==========
+    socket.on('call_rejected', async ({ callerId }) => {
+      try {
+        console.log(`❌ [CALL] ${userId} rejected call from ${callerId}`);
+        emitToUser(io, callerId, 'call_rejected', {
+          userId,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error(`❌ [CALL_REJECTED] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: Call Ended ==========
+    socket.on('call_ended', async ({ targetUserId }) => {
+      try {
+        console.log(`📴 [CALL] ${userId} ended call with ${targetUserId}`);
+        emitToUser(io, targetUserId, 'call_ended', {
+          userId,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error(`❌ [CALL_ENDED] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: WebRTC Offer ==========
+    socket.on('webrtc_offer', async ({ targetUserId, offer }) => {
+      try {
+        console.log(`🔄 [WEBRTC] Forwarding offer from ${userId} to ${targetUserId}`);
+        emitToUser(io, targetUserId, 'webrtc_offer', {
+          userId,
+          offer,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error(`❌ [WEBRTC_OFFER] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: WebRTC Answer ==========
+    socket.on('webrtc_answer', async ({ targetUserId, answer }) => {
+      try {
+        console.log(`🔄 [WEBRTC] Forwarding answer from ${userId} to ${targetUserId}`);
+        emitToUser(io, targetUserId, 'webrtc_answer', {
+          userId,
+          answer,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error(`❌ [WEBRTC_ANSWER] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: WebRTC ICE Candidate ==========
+    socket.on('webrtc_ice_candidate', async ({ targetUserId, candidate }) => {
+      try {
+        console.log(`🧊 [ICE] Forwarding ICE candidate from ${userId} to ${targetUserId}`);
+        emitToUser(io, targetUserId, 'webrtc_ice_candidate', {
+          userId,
+          candidate,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error(`❌ [WEBRTC_ICE] Error: ${error.message}`);
       }
     });
 

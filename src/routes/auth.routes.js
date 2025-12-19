@@ -4,6 +4,7 @@ import authController from '../controller/auth.controller.js';
 import { verifyJWT, requireRole } from '../middlewares/auth.middleware.js';
 import { API } from '../constants/endpoints.js';
 
+
 const router = express.Router();
 
 // Public routes
