@@ -1,7 +1,9 @@
 import Message from '../models/message.model.js';
 import Room from '../models/room.model.js';
 import User from '../models/user.model.js';
+import CallLog from '../models/callLog.model.js';
 import { decodeToken } from '../utils/tokenUtils.js';
+
 
 // ============ CONSTANTS ============
 
@@ -869,6 +871,22 @@ export const registerChatSocket = (io) => {
           return socket.emit('error', { message: access.error });
         }
 
+        // ✅ Delete media from Cloudinary if message has media
+        if (message.media && message.media.length > 0) {
+          const { deleteFromCloudinary } = await import('../utils/cloudinary.js');
+          
+          for (const mediaItem of message.media) {
+            if (mediaItem.url && mediaItem.url.includes('cloudinary.com')) {
+              try {
+                await deleteFromCloudinary(mediaItem.url);
+                console.log(`✅ Deleted media from Cloudinary: ${mediaItem.url}`);
+              } catch (error) {
+                console.error(`⚠️ Failed to delete media from Cloudinary: ${mediaItem.url}`, error);
+              }
+            }
+          }
+        }
+
         message.deletedAt = new Date();
         await message.save();
 
@@ -892,25 +910,56 @@ export const registerChatSocket = (io) => {
           return socket.emit('error', { message: 'Target user and call type required' });
         }
 
-        console.log(`📞 [CALL] ${userId} initiating ${callType} call to ${targetUserId}`);
+        // Create call log
+        const callLog = new CallLog({
+          callerId: userId,
+          receiverId: targetUserId,
+          roomId,
+          callType,
+          status: 'ringing',
+        });
+        await callLog.save();
+
+        console.log(`📞 [CALL] ${userId} initiating ${callType} call to ${targetUserId}, callId: ${callLog._id}`);
+
+        // Get caller info
+        const caller = await User.findById(userId).select('name avatar');
 
         emitToUser(io, targetUserId, 'call_incoming', {
+          callId: callLog._id,
           callerId: userId,
-          callerName: socket.handshake.auth.userName || 'User',
+          callerName: caller?.name || 'User',
+          callerAvatar: caller?.avatar,
           callType,
           roomId,
           timestamp: new Date(),
         });
+
+        // Send callId back to caller
+        socket.emit('call_initiated', {
+          callId: callLog._id,
+          targetUserId,
+          timestamp: new Date(),
+        });
       } catch (error) {
         console.error(`❌ [CALL_INITIATE] Error: ${error.message}`);
+        socket.emit('error', { message: 'Failed to initiate call' });
       }
     });
 
     // ========== EVENT: Call Accepted ==========
-    socket.on('call_accepted', async ({ callerId }) => {
+    socket.on('call_accepted', async ({ callId, callerId }) => {
       try {
-        console.log(`✅ [CALL] ${userId} accepted call from ${callerId}`);
+        console.log(`✅ [CALL] ${userId} accepted call ${callId} from ${callerId}`);
+        
+        // Update call log
+        await CallLog.findByIdAndUpdate(callId, {
+          status: 'accepted',
+          startTime: new Date(),
+        });
+
         emitToUser(io, callerId, 'call_accepted', {
+          callId,
           userId,
           timestamp: new Date(),
         });
@@ -920,10 +969,55 @@ export const registerChatSocket = (io) => {
     });
 
     // ========== EVENT: Call Rejected ==========
-    socket.on('call_rejected', async ({ callerId }) => {
+    socket.on('call_rejected', async ({ callId, callerId }) => {
       try {
-        console.log(`❌ [CALL] ${userId} rejected call from ${callerId}`);
+        console.log(`❌ [CALL] ${userId} rejected call ${callId} from ${callerId}`);
+        
+        // Update call log
+        const callLog = await CallLog.findByIdAndUpdate(callId, {
+          status: 'rejected',
+          endTime: new Date(),
+        }, { new: true }).populate('callerId receiverId', 'name');
+
+        // Create rejected call message in room
+        if (callLog && callLog.roomId) {
+          const callMessage = new Message({
+            roomId: callLog.roomId,
+            senderId: callerId,
+            content: 'Call declined',
+            type: 'call',
+            callLog: {
+              callerId: callLog.callerId._id,
+              receiverId: callLog.receiverId._id,
+              status: 'rejected',
+              duration: 0,
+              callType: callLog.callType,
+            },
+          });
+          await callMessage.save();
+
+          // Broadcast call log message to room
+          emitToRoom(io, callLog.roomId, 'message_received', {
+            _id: callMessage._id,
+            roomId: callLog.roomId,
+            content: callMessage.content,
+            type: 'call',
+            callLog: {
+              callerId: callLog.callerId._id,
+              receiverId: callLog.receiverId._id,
+              status: 'rejected',
+              duration: 0,
+              callType: callLog.callType,
+            },
+            senderId: callerId,
+            sender: { _id: callerId, name: callLog.callerId.name },
+            createdAt: callMessage.createdAt,
+            status: 'sent',
+          });
+        }
+
         emitToUser(io, callerId, 'call_rejected', {
+          callId,
           userId,
           timestamp: new Date(),
         });
@@ -932,12 +1026,126 @@ export const registerChatSocket = (io) => {
       }
     });
 
-    // ========== EVENT: Call Ended ==========
-    socket.on('call_ended', async ({ targetUserId }) => {
+    // ========== EVENT: Call Missed ==========
+    socket.on('call_missed', async ({ callId, callerId }) => {
       try {
-        console.log(`📴 [CALL] ${userId} ended call with ${targetUserId}`);
-        emitToUser(io, targetUserId, 'call_ended', {
+        console.log(`⏰ [CALL] Call ${callId} from ${callerId} was missed by ${userId}`);
+        
+        // Update call log
+        const callLog = await CallLog.findByIdAndUpdate(callId, {
+          status: 'missed',
+          endTime: new Date(),
+        }, { new: true }).populate('callerId receiverId', 'name');
+
+        // Create missed call message in room
+        if (callLog && callLog.roomId) {
+          const callMessage = new Message({
+            roomId: callLog.roomId,
+            senderId: callerId,
+            content: 'Missed call',
+            type: 'call',
+            callLog: {
+              callerId: callLog.callerId._id,
+              receiverId: callLog.receiverId._id,
+              status: 'missed',
+              duration: 0,
+              callType: callLog.callType,
+            },
+          });
+          await callMessage.save();
+
+          // Broadcast call log message to room
+          emitToRoom(io, callLog.roomId, 'message_received', {
+            _id: callMessage._id,
+            roomId: callLog.roomId,
+            content: callMessage.content,
+            type: 'call',
+            callLog: {
+              callerId: callLog.callerId._id,
+              receiverId: callLog.receiverId._id,
+              status: 'missed',
+              duration: 0,
+              callType: callLog.callType,
+            },
+            senderId: callerId,
+            sender: { _id: callerId, name: callLog.callerId.name },
+            createdAt: callMessage.createdAt,
+            status: 'sent',
+          });
+        }
+
+        emitToUser(io, callerId, 'call_missed', {
+          callId,
           userId,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error(`❌ [CALL_MISSED] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: Call Ended ==========
+    socket.on('call_ended', async ({ callId, targetUserId, duration }) => {
+      try {
+        console.log(`📴 [CALL] ${userId} ended call ${callId} with ${targetUserId}, duration: ${duration}s`);
+        
+        // Get current call log status
+        const existingCallLog = await CallLog.findById(callId);
+        
+        // Don't create message if call was already rejected or missed
+        if (existingCallLog && (existingCallLog.status === 'rejected' || existingCallLog.status === 'missed')) {
+          console.log(`⏭️ [CALL] Skipping call_ended message - call was already ${existingCallLog.status}`);
+          return;
+        }
+        
+        // Update call log
+        const callLog = await CallLog.findByIdAndUpdate(callId, {
+          status: 'ended',
+          endTime: new Date(),
+          duration: duration || 0,
+        }, { new: true }).populate('callerId receiverId', 'name');
+
+        // Create call log message in room
+        if (callLog && callLog.roomId) {
+          const callMessage = new Message({
+            roomId: callLog.roomId,
+            senderId: userId,
+            content: `Call ${duration > 0 ? 'ended' : 'missed'}`,
+            type: 'call',
+            callLog: {
+              callerId: callLog.callerId._id,
+              receiverId: callLog.receiverId._id,
+              status: callLog.status,
+              duration: callLog.duration,
+              callType: callLog.callType,
+            },
+          });
+          await callMessage.save();
+
+          // Broadcast call log message to room
+          emitToRoom(io, callLog.roomId, 'message_received', {
+            _id: callMessage._id,
+            roomId: callLog.roomId,
+            content: callMessage.content,
+            type: 'call',
+            callLog: {
+              callerId: callLog.callerId._id,
+              receiverId: callLog.receiverId._id,
+              status: callLog.status,
+              duration: callLog.duration,
+              callType: callLog.callType,
+            },
+            senderId: userId,
+            sender: { _id: userId, name: callLog.callerId.name },
+            createdAt: callMessage.createdAt,
+            status: 'sent',
+          });
+        }
+
+        emitToUser(io, targetUserId, 'call_ended', {
+          callId,
+          userId,
+          duration,
           timestamp: new Date(),
         });
       } catch (error) {
@@ -946,10 +1154,11 @@ export const registerChatSocket = (io) => {
     });
 
     // ========== EVENT: WebRTC Offer ==========
-    socket.on('webrtc_offer', async ({ targetUserId, offer }) => {
+    socket.on('webrtc_offer', async ({ callId, targetUserId, offer }) => {
       try {
         console.log(`🔄 [WEBRTC] Forwarding offer from ${userId} to ${targetUserId}`);
         emitToUser(io, targetUserId, 'webrtc_offer', {
+          callId,
           userId,
           offer,
           timestamp: new Date(),
@@ -960,10 +1169,11 @@ export const registerChatSocket = (io) => {
     });
 
     // ========== EVENT: WebRTC Answer ==========
-    socket.on('webrtc_answer', async ({ targetUserId, answer }) => {
+    socket.on('webrtc_answer', async ({ callId, targetUserId, answer }) => {
       try {
         console.log(`🔄 [WEBRTC] Forwarding answer from ${userId} to ${targetUserId}`);
         emitToUser(io, targetUserId, 'webrtc_answer', {
+          callId,
           userId,
           answer,
           timestamp: new Date(),
@@ -974,10 +1184,11 @@ export const registerChatSocket = (io) => {
     });
 
     // ========== EVENT: WebRTC ICE Candidate ==========
-    socket.on('webrtc_ice_candidate', async ({ targetUserId, candidate }) => {
+    socket.on('webrtc_ice_candidate', async ({ callId, targetUserId, candidate }) => {
       try {
         console.log(`🧊 [ICE] Forwarding ICE candidate from ${userId} to ${targetUserId}`);
         emitToUser(io, targetUserId, 'webrtc_ice_candidate', {
+          callId,
           userId,
           candidate,
           timestamp: new Date(),

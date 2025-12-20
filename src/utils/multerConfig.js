@@ -44,7 +44,7 @@ export const uploadChatMedia = multer({
     fileSize: 50 * 1024 * 1024, // 50MB for videos
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|mov|avi|mkv|pdf|doc|docx|txt|zip|rar/;
+    const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|mov|avi|mkv|pdf|doc|docx|txt|zip|rar|webm|mp3|wav|ogg|m4a/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     
     if (extname) {

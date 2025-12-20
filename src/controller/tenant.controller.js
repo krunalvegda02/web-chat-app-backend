@@ -102,7 +102,7 @@ const getAllTenants = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     const tenants = await Tenant.find()
-      .populate('adminId', 'name email')
+      .populate('adminId', 'name email phone')
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });

@@ -27,22 +27,32 @@ const messageSchema = new mongoose.Schema(
       {
         type: {
           type: String,
-          enum: ['image', 'video', 'audio', 'file'],
+          enum: ['image', 'video', 'audio', 'voice', 'file'],
           default: 'image'
         },
         url: String,
         mimeType: String,
         size: Number,
         duration: Number, // for audio/video in seconds
-        thumbnail: String // for video thumbnail
+        thumbnail: String, // for video thumbnail
+        isVoiceNote: Boolean // flag for voice messages
       }
     ],
 
     // ✅ Message type
     type: {
       type: String,
-      enum: ['text', 'image', 'video', 'audio', 'file', 'system'],
+      enum: ['text', 'image', 'video', 'audio', 'voice', 'file', 'system', 'call'],
       default: 'text'
+    },
+
+    // ✅ Call log data (for call type messages)
+    callLog: {
+      callerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      status: { type: String, enum: ['missed', 'rejected', 'ended'] },
+      duration: { type: Number, default: 0 },
+      callType: { type: String, enum: ['audio', 'video'], default: 'audio' },
     },
 
     // ✅ FIXED: Delivery status tracking

@@ -20,4 +20,10 @@ router.post(
   uploadController.uploadChatMedia
 );
 
+router.get(
+  '/download',
+  verifyJWT,
+  uploadController.downloadFile
+);
+
 export default router;

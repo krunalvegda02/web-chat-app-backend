@@ -13,14 +13,14 @@ import { successResponse, errorResponse } from "../utils/response.js";
    ✅ NEW FUNCTION - Shows who current user can chat with
    ✅ SUPER_ADMIN: All ADMINs
    ✅ ADMIN: SUPER_ADMIN + Tenant USERS
-   ✅ USER: Tenant ADMIN + Other USERS
+   ✅ USER: Tenant ADMIN + Other USERS + Contacts
    ==================================================== */
 export const getAvailableUsersToChat = async (req, res, next) => {
     try {
         const userRole = req.user.role;
         const userId = req.user._id;
         const tenantId = req.user.tenantId;
-        const contactsOnly = req.query;
+        const contactsOnly = req.query.contactsOnly === 'true';
 
         let availableUsers = [];
 
@@ -31,55 +31,51 @@ export const getAvailableUsersToChat = async (req, res, next) => {
                 _id: { $ne: userId },
                 status: 'ACTIVE'
             })
-                .select('_id name email avatar role')
+                .select('_id name email avatar role phone')
                 .lean();
         }
         // ✅ ADMIN/TENANT_ADMIN: Can chat with SUPER_ADMIN + Tenant members
         else if (userRole === 'ADMIN' || userRole === 'TENANT_ADMIN') {
-            // Get SUPER_ADMIN
             const superAdmin = await User.find({
                 role: 'SUPER_ADMIN',
                 status: 'ACTIVE'
-            }).select('_id name email avatar role').lean();
+            }).select('_id name email avatar role phone').lean();
 
-            // Get all tenant members (excluding self)
             const tenantMembers = await User.find({
                 tenantId: tenantId,
                 _id: { $ne: userId },
                 status: 'ACTIVE'
             })
-                .select('_id name email avatar role')
+                .select('_id name email avatar role phone')
                 .lean();
 
             availableUsers = [...superAdmin, ...tenantMembers];
         }
-        // ✅ USER: Can chat with tenant ADMIN + Other tenant members
+        // ✅ USER: Can chat with tenant ADMIN + Other tenant members + Contacts
         else if (userRole === 'USER') {
-            // Get tenant admin
             const tenant = await Tenant.findById(tenantId).lean();
-            const tenantAdmin = tenant ? await User.findById(tenant.adminId).select('_id name email avatar role').lean() : null;
+            const tenantAdmin = tenant ? await User.findById(tenant.adminId).select('_id name email avatar role phone').lean() : null;
 
-            // Get other tenant members (excluding self)
             const otherMembers = await User.find({
                 tenantId: tenantId,
                 _id: { $ne: userId },
                 status: 'ACTIVE'
             })
-                .select('_id name email avatar role')
+                .select('_id name email avatar role phone')
                 .lean();
 
             availableUsers = tenantAdmin ? [tenantAdmin, ...otherMembers] : otherMembers;
         }
 
-        if (contactsOnly === 'true') {
+        // ✅ Filter by contacts if requested
+        if (contactsOnly) {
             const user = await User.findById(userId).select('contacts');
-            const contactIds = user.contacts.map(c => c.userId);
+            const contactIds = user.contacts.map(c => c.userId.toString());
             availableUsers = availableUsers.filter(u =>
-                contactIds.some(id => id.toString() === u._id.toString())
+                contactIds.includes(u._id.toString())
             );
         }
 
-        // Remove duplicates
         const uniqueUsers = Array.from(
             new Map(availableUsers.map(u => [u._id.toString(), u])).values()
         );
@@ -287,6 +283,7 @@ export const createDirectRoom = async (req, res, next) => {
             name: `Chat - ${currentUserId} & ${otherUserId}`,
             type: 'DIRECT',
             tenantId: req.user.tenantId,
+            createdVia: 'direct',
             participants: [
                 {
                     userId: currentUserId,
@@ -508,15 +505,21 @@ export const getRoomMessages = async (req, res, next) => {
         const limit = parseInt(req.query.limit) || 60;
         const skip = (page - 1) * limit;
 
-        const room = await Room.findById(roomId);
+        const room = await Room.findById(roomId).populate('participants.userId', 'name email avatar role');
         if (!room) return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
 
         const isParticipant = room.participants.some(
-            p => p.userId && req.user._id && p.userId.toString() === req.user._id.toString()
+            p => p.userId && req.user._id && (p.userId._id?.toString() === req.user._id.toString() || p.userId.toString() === req.user._id.toString())
         );
 
         if (!isParticipant && req.user.role !== 'SUPER_ADMIN') {
-            return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
+            console.error('❌ Authorization failed:', {
+                userId: req.user._id.toString(),
+                roomId,
+                participants: room.participants.map(p => ({ userId: p.userId?._id || p.userId, role: p.role })),
+                isParticipant
+            });
+            return errorResponse(res, 'Unauthorized access', 403);
         }
 
         // ✅ Fetch only active (not deleted) messages
@@ -524,6 +527,8 @@ export const getRoomMessages = async (req, res, next) => {
             .populate('senderId', 'name email avatar role')
             .populate('readBy.userId', 'name')
             .populate('replyTo')
+            .populate('callLog.callerId', 'name email avatar')
+            .populate('callLog.receiverId', 'name email avatar')
             .skip(skip)
             .limit(limit)
             .sort({ createdAt: 1 })
@@ -569,6 +574,12 @@ export const getRoomMessages = async (req, res, next) => {
 
         return successResponse(res, {
             roomId,
+            room: {
+                _id: room._id,
+                name: room.name,
+                type: room.type,
+                participants: room.participants
+            },
             messages: messagesWithReadStatus,
             pagination: {
                 page,
@@ -926,7 +937,7 @@ const editMessage = async (req, res, next) => {
     }
 };
 
-// ✅ FIXED: Delete message (soft delete)
+// ✅ FIXED: Delete message (soft delete) + Delete media from Cloudinary
 const deleteMessage = async (req, res, next) => {
     try {
         const { messageId } = req.params;
@@ -942,7 +953,24 @@ const deleteMessage = async (req, res, next) => {
             return errorResponse(res, 'Only sender can delete message', 403);
         }
 
-        // ✅ Soft delete
+        // ✅ Delete media from Cloudinary if message has media
+        if (message.media && message.media.length > 0) {
+            const { deleteFromCloudinary } = await import('../utils/cloudinary.js');
+            
+            for (const mediaItem of message.media) {
+                if (mediaItem.url && mediaItem.url.includes('cloudinary.com')) {
+                    try {
+                        await deleteFromCloudinary(mediaItem.url);
+                        console.log(`✅ Deleted media from Cloudinary: ${mediaItem.url}`);
+                    } catch (error) {
+                        console.error(`⚠️ Failed to delete media from Cloudinary: ${mediaItem.url}`, error);
+                        // Continue even if Cloudinary delete fails
+                    }
+                }
+            }
+        }
+
+        // ✅ Soft delete message
         await message.softDelete(req.user._id);
 
         console.log(`✅ Message soft deleted: ${messageId}`);
@@ -1386,7 +1414,9 @@ export const getMemberChatHistory = async (req, res, next) => {
             _id: roomId,
             tenantId: req.user.tenantId,
             'participants.userId': memberId
-        });
+        })
+            .populate('participants.userId', 'name email avatar role')
+            .lean();
 
         if (!room) {
             return errorResponse(res, "Room not found or member is not participant", 404);
@@ -1418,7 +1448,8 @@ export const getMemberChatHistory = async (req, res, next) => {
                 id: room._id,
                 name: room.name,
                 type: room.type,
-                createdAt: room.createdAt
+                createdAt: room.createdAt,
+                participants: room.participants
             },
             messages: messages.map(msg => ({
                 messageId: msg._id,

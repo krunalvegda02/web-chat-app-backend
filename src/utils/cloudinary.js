@@ -120,8 +120,8 @@ export const uploadOnCloudinary = async (
 
       // Prepare upload options
       const uploadOptions = {
-        // Resource type
-        resource_type: isVideo ? 'video' : isDocument ? 'raw' : 'image',
+        // Resource type - use 'image' for documents (Cloudinary treats PDFs as images)
+        resource_type: isVideo ? 'video' : options.resource_type || 'image',
 
         // Folder organization
         folder: options.folder || UPLOAD_CONFIG.CLOUDINARY_FOLDERS.ads_banner,
@@ -129,8 +129,8 @@ export const uploadOnCloudinary = async (
         // Versioning for cache busting
         version: true,
 
-        // Quality optimization
-        quality: 'auto:eco',
+        // Quality optimization (skip for documents)
+        ...(!isDocument && { quality: 'auto:eco' }),
 
         // Image-specific optimizations
         ...((!isVideo && !isDocument) && {
@@ -207,34 +207,18 @@ export const extractPublicIdFromUrl = (url) => {
   try {
     if (!url) return null;
 
-    // Parse URL
-    const urlObj = new URL(url);
-    const pathname = urlObj.pathname;
-
-    // URL format: /v1234567890/folder/publicid.ext or /upload/v1234567890/...
-    const parts = pathname.split('/');
+    // Handle both /image/, /video/, and /raw/ URLs
+    const match = url.match(/\/(image|video|raw)\/upload\/(?:v\d+\/)?(.*?)(?:\?|$)/);
     
-    // Find version segment (v followed by numbers)
-    const versionIndex = parts.findIndex(p => /^v\d+$/.test(p));
-    
-    if (versionIndex === -1) {
-      console.warn('[Cloudinary] Could not find version in URL:', url);
-      return null;
+    if (match && match[2]) {
+      // Remove file extension from public_id
+      const publicId = match[2].replace(/\.[^.]+$/, '');
+      console.log('[Cloudinary] Extracted public ID:', publicId);
+      return publicId;
     }
 
-    // Get everything after version
-    const pathAfterVersion = parts.slice(versionIndex + 1).join('/');
-    
-    // Remove file extension
-    const publicId = pathAfterVersion.replace(/\.[^.]*$/, '');
-
-    if (!publicId) {
-      console.warn('[Cloudinary] Extracted empty public ID from URL:', url);
-      return null;
-    }
-
-    console.log('[Cloudinary] Extracted public ID:', publicId);
-    return publicId;
+    console.warn('[Cloudinary] Could not extract public ID from URL:', url);
+    return null;
 
   } catch (error) {
     console.error('[Cloudinary] Error extracting public ID:', error.message);
@@ -252,6 +236,8 @@ export const deleteFromCloudinary = async (url) => {
       return null;
     }
 
+    console.log('[Cloudinary] Attempting to delete:', url);
+
     const publicId = extractPublicIdFromUrl(url);
 
     if (!publicId) {
@@ -259,23 +245,32 @@ export const deleteFromCloudinary = async (url) => {
       return null;
     }
 
-    // Determine resource type
+    // Determine resource type from URL
     const isVideo = url.includes('/video/');
-    const resourceType = isVideo ? 'video' : 'image';
+    const isRaw = url.includes('/raw/');
+    const resourceType = isVideo ? 'video' : isRaw ? 'raw' : 'image';
 
-    console.log(`[Cloudinary] Deleting ${resourceType}:`, publicId);
+    console.log(`[Cloudinary] Deleting ${resourceType}: ${publicId}`);
 
     const result = await cloudinary.uploader.destroy(publicId, {
       resource_type: resourceType,
-      invalidate: true  // Invalidate CDN cache
+      invalidate: true
     });
 
-    console.log('[Cloudinary] Deletion result:', result);
+    console.log('[Cloudinary] Deletion result:', JSON.stringify(result));
+    
+    if (result.result === 'ok') {
+      console.log(`✅ [Cloudinary] Successfully deleted: ${publicId}`);
+    } else if (result.result === 'not found') {
+      console.warn(`⚠️ [Cloudinary] File not found: ${publicId}`);
+    } else {
+      console.warn(`⚠️ [Cloudinary] Unexpected result: ${result.result}`);
+    }
+
     return result;
 
   } catch (error) {
-    console.error('[Cloudinary] Error deleting file:', error.message);
-    // Don't throw - allow graceful degradation
+    console.error('[Cloudinary] Error deleting file:', error.message, error.stack);
     return null;
   }
 };
