@@ -6,9 +6,13 @@ const isValidEmail = (email) => {
   return emailRegex.test(email);
 };
 
-const isValidPhone = (code) => {
-  const phoneRegex = /^\+?[1-9]\d{1,14}$/;
-  return phoneRegex.test(code);
+const isValidPhone = (phone) => {
+  if (!phone) return false;
+  // Remove all non-digit characters except +
+  const cleaned = phone.replace(/[^\d+]/g, '');
+  // Allow formats: +1234567890, 1234567890, or any 10-15 digit number
+  const phoneRegex = /^\+?\d{10,15}$/;
+  return phoneRegex.test(cleaned);
 }
 
 const isValidPassword = (password) => {
@@ -32,7 +36,7 @@ const validatePassword = (password) => {
 };
 
 const validatePhone = (phone) => {
-  if (!phone) throw new Error('Phone number is required');
+  if (!phone) return true; // Phone is optional
   if (!isValidPhone(phone)) throw new Error('Invalid phone number format');
   return true;
 };

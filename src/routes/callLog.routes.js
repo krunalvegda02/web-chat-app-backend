@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getMyCallLogs, deleteCallLog } from '../controllers/callLog.controller.js';
+import { getMyCallLogs, deleteCallLog } from '../controller/callLog.controller.js';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
 
 const router = Router();

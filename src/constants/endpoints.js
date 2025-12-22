@@ -4,6 +4,7 @@ const ROUTE = {
     TENANT_ROUTER: "/api/v1/tenants",
     CHAT_ROUTER: "/api/v1/chat",
     UPLOAD_ROUTER: "/api/v1/upload",
+    CONTACTS_ROUTER: "/api/v1/contacts",
 };
 
 const API = {
@@ -26,6 +27,7 @@ const API = {
         CREATE_ADMIN: "/create-admin",
     },
     USER: {
+        BY_ID: "/:userId",
         PROFILE: "/profile",
         NOTIFICATIONS: "/notifications",
         NOTIFICATION_BY_ID: "/notifications/:notificationId",
@@ -33,6 +35,8 @@ const API = {
     TENANT: {
         CREATE: "/",
         GET_ALL: "/",
+        UPDATE: "/:tenantId",
+        TOGGLE_STATUS: "/:tenantId/toggle-status",
         DELETE: "/:tenantId",
         BY_SLUG: "/by-slug/:slug",
         DETAILS: "/:tenantId",

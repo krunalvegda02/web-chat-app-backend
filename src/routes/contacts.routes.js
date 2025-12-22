@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { verifyJWT } from '../middlewares/auth.middleware.js';
 import {
     getContacts,
     addContact,
@@ -10,7 +10,7 @@ import {
 const router = express.Router();
 
 // All routes require authentication
-router.use(authenticate);
+router.use(verifyJWT);
 
 // Get user's contacts
 router.get('/', getContacts);

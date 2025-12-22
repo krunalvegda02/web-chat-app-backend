@@ -21,6 +21,7 @@ router.post(API.CHAT.ADMIN_CHAT, requireRole('ADMIN', 'TENANT_ADMIN', 'SUPER_ADM
 // Message routes
 router.get(API.CHAT.ROOM_MESSAGES, chatController.getRoomMessages);
 router.post('/send-message', chatController.sendMessageWithMedia);
+router.post('/forward-message', chatController.forwardMessage);
 router.get(API.CHAT.SEARCH_MESSAGES, chatController.searchMessages);
 
 // Read status

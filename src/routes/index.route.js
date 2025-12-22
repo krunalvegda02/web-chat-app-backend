@@ -5,6 +5,7 @@ import tenantRoutes from "./tenant.routes.js";
 import chatRoutes from "./chat.routes.js";
 import uploadRoutes from "./upload.routes.js";
 import callLogRoutes from "./callLog.routes.js";
+import contactsRoutes from "./contacts.routes.js";
 
 import { ROUTE } from "../constants/endpoints.js";
 
@@ -15,6 +16,7 @@ const registerRoutes = (app) => {
   app.use(ROUTE.CHAT_ROUTER, chatRoutes);
   app.use(ROUTE.UPLOAD_ROUTER, uploadRoutes);
   app.use('/api/v1/call-logs', callLogRoutes);
+  app.use(ROUTE.CONTACTS_ROUTER, contactsRoutes);
 };
 
 export default registerRoutes;

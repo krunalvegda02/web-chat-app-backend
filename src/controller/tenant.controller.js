@@ -10,7 +10,7 @@ CREATE TENANT WITH ADMIN (SUPER ADMIN)
 ============================================ */
 const createTenant = async (req, res, next) => {
   try {
-    const { name, email, password = 'Admin@123' } = req.body;
+    const { name, email, password = 'Admin@123', phone } = req.body;
 
     if (!name || !email) {
       return errorResponse(res, MESSAGE.REQUIRED_FIELDS, 400);
@@ -36,16 +36,17 @@ const createTenant = async (req, res, next) => {
 
     // Create admin user
     const adminUser = new User({
-      name: `${name} Admin`,
+      name: `${name}`,
       email,
       password,
+      phone: phone || undefined,
       role: 'ADMIN',
       status: 'ACTIVE',
     });
 
     await adminUser.save();
 
-    // Create tenant with default theme
+    // Create tenant with default WhatsApp theme
     const tenant = new Tenant({
       name,
       slug,
@@ -55,20 +56,20 @@ const createTenant = async (req, res, next) => {
         appName: name,
         logoUrl: null,
         logoHeight: 40,
-        primaryColor: '#3B82F6',
-        secondaryColor: '#E8F0FE',
-        accentColor: '#06B6D4',
+        primaryColor: '#008069',
+        secondaryColor: '#F0F2F5',
+        accentColor: '#25D366',
         backgroundColor: '#FFFFFF',
-        borderColor: '#E2E8F0',
-        headerBackground: '#F8FAFC',
-        headerText: '#1F2937',
+        borderColor: '#E9EDEF',
+        headerBackground: '#008069',
+        headerText: '#FFFFFF',
         chatBackgroundImage: null,
-        chatBubbleAdmin: '#3B82F6',
-        chatBubbleUser: '#F3F4F6',
-        chatBubbleAdminText: '#FFFFFF',
-        chatBubbleUserText: '#1F2937',
+        chatBubbleAdmin: '#DCF8C6',
+        chatBubbleUser: '#FFFFFF',
+        chatBubbleAdminText: '#111B21',
+        chatBubbleUserText: '#111B21',
         messageFontSize: 14,
-        messageBorderRadius: 12,
+        messageBorderRadius: 8,
         bubbleStyle: 'rounded',
         blurEffect: 0.1,
         showAvatars: true,
@@ -293,6 +294,110 @@ const getTenantUsers = async (req, res, next) => {
 };
 
 /* ============================================
+UPDATE TENANT (SUPER ADMIN ONLY)
+============================================ */
+const updateTenant = async (req, res, next) => {
+  try {
+    const { tenantId } = req.params;
+    const { name, email, phone } = req.body;
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return errorResponse(res, MESSAGE.TENANT_NOT_FOUND, 404);
+    }
+
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
+    }
+
+    // Update tenant name if provided
+    if (name && name !== tenant.name) {
+      tenant.name = name;
+      // Update slug
+      tenant.slug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-');
+    }
+
+    // Update admin user if email or phone changed
+    if (email || phone) {
+      const adminUser = await User.findById(tenant.adminId);
+      if (adminUser) {
+        if (email && email !== adminUser.email) {
+          // Check if new email already exists
+          const existingUser = await User.findOne({ email, _id: { $ne: adminUser._id } });
+          if (existingUser) {
+            return errorResponse(res, MESSAGE.EMAIL_ALREADY_REGISTERED, 400);
+          }
+          adminUser.email = email;
+        }
+        if (phone !== undefined) {
+          adminUser.phone = phone || null;
+        }
+        await adminUser.save();
+      }
+    }
+
+    await tenant.save();
+    await tenant.populate('adminId', 'name email phone');
+
+    const tenantResponse = {
+      ...tenant.toObject(),
+      admin: tenant.adminId,
+    };
+
+    return successResponse(res, { tenant: tenantResponse }, 'Tenant updated successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* ============================================
+TOGGLE TENANT STATUS (SUPER ADMIN ONLY)
+============================================ */
+const toggleTenantStatus = async (req, res, next) => {
+  try {
+    const { tenantId } = req.params;
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return errorResponse(res, MESSAGE.TENANT_NOT_FOUND, 404);
+    }
+
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
+    }
+
+    // Toggle status
+    tenant.status = tenant.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    await tenant.save();
+
+    // Also update admin user status
+    const adminUser = await User.findById(tenant.adminId);
+    if (adminUser) {
+      adminUser.status = tenant.status;
+      await adminUser.save();
+    }
+
+    await tenant.populate('adminId', 'name email phone');
+
+    const tenantResponse = {
+      ...tenant.toObject(),
+      admin: tenant.adminId,
+    };
+
+    return successResponse(
+      res,
+      { tenant: tenantResponse },
+      `Tenant ${tenant.status === 'ACTIVE' ? 'activated' : 'deactivated'} successfully`
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* ============================================
 DELETE TENANT (SUPER ADMIN ONLY)
 ============================================ */
 const deleteTenant = async (req, res, next) => {
@@ -332,7 +437,21 @@ GENERATE INVITE LINK
 const generateInviteLink = async (req, res, next) => {
   try {
     const { tenantId } = req.params;
-    const { email } = req.body;
+    const { email, phone } = req.body;
+
+    // Validate required fields
+    if (!email) {
+      return errorResponse(res, 'Email is required', 400);
+    }
+    if (!phone) {
+      return errorResponse(res, 'Phone number is required', 400);
+    }
+
+    // Validate phone format (10-15 digits)
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+      return errorResponse(res, 'Phone number must be 10-15 digits', 400);
+    }
 
     // 1. Validate tenant exists & admin owns it
     const tenant = await Tenant.findById(tenantId);
@@ -357,25 +476,35 @@ const generateInviteLink = async (req, res, next) => {
       return errorResponse(res, 'Email already registered', 400);
     }
 
-    // 4. Generate token (7 day expiry)
+    // 4. Check phone not already registered globally
+    const registeredPhone = await User.findOne({ phone: phoneDigits });
+    if (registeredPhone) {
+      return errorResponse(res, 'Phone number already registered', 400);
+    }
+
+    // 5. Generate token (7 day expiry)
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    // 5. Store in tenant
+    // 6. Store in tenant
     tenant.inviteToken = {
       token,
       expiresAt,
       invitedEmail: email,
+      invitedPhone: phone,
       createdBy: req.user._id,
       acceptedAt: null,
       acceptedBy: null
     };
     await tenant.save();
+    
+    console.log('✅ [INVITE] Invite token saved with phone:', phone);
+    console.log('📞 [INVITE] Tenant invite token:', tenant.inviteToken);
 
-    // 6. Build invite URL
-    const inviteUrl = `${process.env.FRONTEND_URL}join?token=${token}&tenantId=${tenantId}`;
+    // 7. Build invite URL
+    const inviteUrl = `${process.env.FRONTEND_URL}/join?token=${token}&tenantId=${tenantId}`;
 
-    // 7. Send invite email
+    // 8. Send invite email
     sendInviteEmail(email, tenant.name, inviteUrl).catch(err =>
       console.error('Invite email failed:', err)
     );
@@ -431,6 +560,7 @@ export const getInviteInfo = async (req, res, next) => {
     // Return safe info for signup form
     return successResponse(res, {
       invitedEmail: inviteToken.invitedEmail,
+      invitedPhone: inviteToken.invitedPhone,
       tenantName: tenant.name,
       tenantSlug: tenant.slug,
       expiresAt: inviteToken.expiresAt
@@ -609,6 +739,8 @@ export default {
   updateTheme,
   generateInviteLink,
   getTenantUsers,
+  updateTenant,
+  toggleTenantStatus,
   deleteTenant,
   resendInvite,
   getInviteInfo,

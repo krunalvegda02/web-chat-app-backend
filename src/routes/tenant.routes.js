@@ -21,6 +21,20 @@ router.get(
     tenantController.getAllTenants
 );
 
+router.put(
+    API.TENANT.UPDATE,
+    verifyJWT,
+    requireRole('SUPER_ADMIN'),
+    tenantController.updateTenant
+);
+
+router.patch(
+    API.TENANT.TOGGLE_STATUS,
+    verifyJWT,
+    requireRole('SUPER_ADMIN'),
+    tenantController.toggleTenantStatus
+);
+
 router.delete(
     API.TENANT.DELETE,
     verifyJWT,

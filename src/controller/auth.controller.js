@@ -42,7 +42,7 @@ const register = async (req, res, next) => {
     let normalizedPhone = null;
     if (phone) {
       validatePhone(phone);
-      normalizedPhone = phone.replace(/\\D/g, ''); // Remove non-digits
+      normalizedPhone = phone.replace(/\D/g, ''); // Remove non-digits
       
       // Check if phone already exists
       const existingPhoneUser = await User.findOne({ phone: normalizedPhone });
@@ -134,7 +134,7 @@ const login = async (req, res, next) => {
       query.email = email;
     } else if (phone) {
       validatePhone(phone);
-      query.phone = phone.replace(/\\D/g, '');
+      query.phone = phone.replace(/\D/g, '');
     }
 
     const user = await User.findOne(query).select('+password');
@@ -239,7 +239,7 @@ const forgotPassword = async (req, res, next) => {
       query.email = email;
     } else {
       validatePhone(phone);
-      query.phone = phone.replace(/\\D/g, '');
+      query.phone = phone.replace(/\D/g, '');
     }
 
     const user = await User.findOne(query);
@@ -344,18 +344,6 @@ export const registerWithInvite = async (req, res, next) => {
       return errorResponse(res, 'Name must be at least 2 characters', 400);
     }
 
-    // ✅ Validate and normalize phone if provided
-    let normalizedPhone = null;
-    if (phone) {
-      validatePhone(phone);
-      normalizedPhone = phone.replace(/\\D/g, '');
-      
-      const existingPhoneUser = await User.findOne({ phone: normalizedPhone });
-      if (existingPhoneUser) {
-        return errorResponse(res, 'Phone number already registered', 400);
-      }
-    }
-
     // ✅ Check tenant exists
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) {
@@ -378,6 +366,26 @@ export const registerWithInvite = async (req, res, next) => {
 
     if (new Date() > new Date(inviteToken.expiresAt)) {
       return errorResponse(res, 'Invite link has expired', 401);
+    }
+
+    // ✅ Validate and normalize phone (use from invite or request)
+    let normalizedPhone = null;
+    const phoneToUse = phone || inviteToken.invitedPhone;
+    console.log('📞 [REGISTER] Phone from request:', phone);
+    console.log('📞 [REGISTER] Phone from invite token:', inviteToken.invitedPhone);
+    console.log('📞 [REGISTER] Phone to use:', phoneToUse);
+    
+    if (phoneToUse) {
+      validatePhone(phoneToUse);
+      normalizedPhone = phoneToUse.replace(/\D/g, '');
+      console.log('📞 [REGISTER] Normalized phone:', normalizedPhone);
+      
+      const existingPhoneUser = await User.findOne({ phone: normalizedPhone });
+      if (existingPhoneUser) {
+        return errorResponse(res, 'Phone number already registered', 400);
+      }
+    } else {
+      console.log('⚠️ [REGISTER] No phone provided in request or invite token');
     }
 
     // ✅ Check email not already registered
@@ -464,8 +472,11 @@ export const updateProfile = async (req, res, next) => {
   try {
     const { name, phone, avatar } = req.body;
     const userId = req.user._id;
+    console.log(userId)
 
     const user = await User.findById(userId);
+    console.log("user", user)
+
     if (!user) {
       return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
     }
@@ -478,7 +489,7 @@ export const updateProfile = async (req, res, next) => {
     // ✅ Update phone with validation
     if (phone) {
       validatePhone(phone);
-      const normalizedPhone = phone.replace(/\\D/g, '');
+      const normalizedPhone = phone.replace(/\D/g, '');
 
       // Check if phone already in use by another user
       if (normalizedPhone !== user.phone) {

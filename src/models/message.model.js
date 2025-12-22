@@ -109,6 +109,12 @@ const messageSchema = new mongoose.Schema(
       ref: 'Message'
     },
 
+    // ✅ Forward tracking
+    isForwarded: {
+      type: Boolean,
+      default: false
+    },
+
     // ✅ Reactions from users
     reactions: [
       {

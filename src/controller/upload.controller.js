@@ -73,6 +73,9 @@ const uploadThemeImage = async (req, res, next) => {
 
 const uploadChatMedia = async (req, res, next) => {
   try {
+    console.log('[uploadChatMedia] Request received');
+    console.log('[uploadChatMedia] Files:', req.files?.length || 0);
+    
     if (!req.files || req.files.length === 0) {
       return errorResponse(res, 'No files uploaded', 400);
     }
@@ -80,6 +83,8 @@ const uploadChatMedia = async (req, res, next) => {
     const uploadedMedia = [];
 
     for (const file of req.files) {
+      console.log('[uploadChatMedia] Processing file:', file.originalname, file.mimetype);
+      
       let fileType = file.mimetype.startsWith('image/') ? 'image' 
         : file.mimetype.startsWith('video/') ? 'video'
         : file.mimetype.startsWith('audio/') ? 'audio'
@@ -119,11 +124,21 @@ const uploadChatMedia = async (req, res, next) => {
         
         console.log(`✅ [LOCAL] Uploaded ${fileType}: ${url}`);
       } else {
+        console.log('[uploadChatMedia] Uploading to Cloudinary...');
+        
+        // Check if it's a voice note before upload
+        const isVoiceNote = fileType === 'audio' && (file.mimetype.includes('webm') || file.mimetype.includes('ogg'));
+        if (isVoiceNote) {
+          fileType = 'voice';
+        }
+        
         // Cloudinary upload - use 'image' resource type for all (PDFs work as images)
         const result = await uploadOnCloudinary(file.path, {
           folder: `chat/${fileType}s`,
-          resource_type: fileType === 'video' ? 'video' : 'image'
+          resource_type: fileType === 'video' ? 'video' : (fileType === 'audio' || fileType === 'voice') ? 'video' : 'image'
         });
+
+        console.log('[uploadChatMedia] Cloudinary result:', result.secure_url);
 
         uploadedMedia.push({
           type: fileType,
@@ -131,7 +146,8 @@ const uploadChatMedia = async (req, res, next) => {
           mimeType: file.mimetype,
           size: file.size,
           fileName: file.originalname,
-          publicId: result.public_id
+          publicId: result.public_id,
+          isVoiceNote: isVoiceNote
         });
 
         if (fs.existsSync(file.path)) {
@@ -140,9 +156,13 @@ const uploadChatMedia = async (req, res, next) => {
       }
     }
 
+    console.log('[uploadChatMedia] Upload complete:', uploadedMedia.length, 'files');
     return successResponse(res, { media: uploadedMedia }, 'Files uploaded successfully');
 
   } catch (error) {
+    console.error('[uploadChatMedia] Error:', error.message);
+    console.error('[uploadChatMedia] Stack:', error.stack);
+    
     if (req.files) {
       req.files.forEach(file => {
         if (file.path && fs.existsSync(file.path)) {
@@ -150,7 +170,8 @@ const uploadChatMedia = async (req, res, next) => {
         }
       });
     }
-    next(error);
+    
+    return errorResponse(res, error.message || 'Upload failed', 500);
   }
 };
 

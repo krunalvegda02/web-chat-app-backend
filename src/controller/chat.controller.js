@@ -127,7 +127,15 @@ export const getAllActiveRooms = async (req, res, next) => {
 
         // Format rooms with display info
         const formattedRooms = await Promise.all(rooms.map(async room => {
-            const unreadCount = room.unreadCount?.get?.(userId.toString()) || 0;
+            // ✅ Calculate unread count from messages not marked as read by current user
+            const unreadCount = await Message.countDocuments({
+                roomId: room._id,
+                senderId: { $ne: userId },
+                isDeleted: false,
+                'readBy.userId': { $ne: userId }
+            });
+
+            console.log(`📊 [ROOM ${room._id}] Unread count: ${unreadCount} for user ${userId}`);
 
             // Get display name based on room type
             let displayName = room.name;
@@ -144,17 +152,17 @@ export const getAllActiveRooms = async (req, res, next) => {
             );
 
             // Get first unread message if there are unread messages
-            let lastUnreadMessage = null;
+            let firstUnreadMessage = null;
 
             if (unreadCount > 0) {
-                lastUnreadMessage = await Message.findOne({
+                firstUnreadMessage = await Message.findOne({
                     roomId: room._id,
                     senderId: { $ne: userId },
                     isDeleted: false,
-                    status: { $ne: 'read' } // ✅ SINGLE SOURCE OF TRUTH
+                    'readBy.userId': { $ne: userId }
                 })
-                    .sort({ createdAt: -1 }) // last unread
-                    .select('content createdAt status')
+                    .sort({ createdAt: 1 }) // ✅ First unread, not last
+                    .select('content createdAt type media')
                     .lean();
             }
 
@@ -172,9 +180,11 @@ export const getAllActiveRooms = async (req, res, next) => {
                 lastMessageTime: room.lastMessageTime,
                 lastMessagePreview: room.lastMessage?.content?.substring(0, 50) || "No messages yet",
                 unreadCount: unreadCount,
-                lastUnreadMessage: lastUnreadMessage ? {
-                    content: lastUnreadMessage.content?.substring(0, 50) || '',
-                    createdAt: lastUnreadMessage.createdAt
+                firstUnreadMessage: firstUnreadMessage ? {
+                    content: firstUnreadMessage.content?.substring(0, 50) || '',
+                    createdAt: firstUnreadMessage.createdAt,
+                    type: firstUnreadMessage.type,
+                    media: firstUnreadMessage.media
                 } : null,
                 participantCount: room.participants.length,
                 createdAt: room.createdAt,
@@ -1514,6 +1524,87 @@ export const createChatFromContact = async (req, res, next) => {
     }
 };
 
+/* ====================================================
+   FORWARD MESSAGE
+   ✅ Forward message to multiple rooms
+   ✅ Preserves media and content
+   ==================================================== */
+export const forwardMessage = async (req, res, next) => {
+    try {
+        const { messageId, roomIds } = req.body;
+
+        if (!messageId || !roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
+            return errorResponse(res, "Message ID and room IDs are required", 400);
+        }
+
+        const originalMessage = await Message.findById(messageId);
+        if (!originalMessage || originalMessage.isDeleted) {
+            return errorResponse(res, "Message not found", 404);
+        }
+
+        const forwardedMessages = [];
+        const io = req.app.get('io');
+
+        for (const roomId of roomIds) {
+            const room = await Room.findById(roomId);
+            if (!room) continue;
+
+            const isParticipant = room.participants.some(
+                p => p.userId && p.userId.toString() === req.user._id.toString()
+            );
+
+            if (!isParticipant) continue;
+
+            const newMessage = new Message({
+                roomId,
+                senderId: req.user._id,
+                content: originalMessage.content,
+                type: originalMessage.type,
+                media: originalMessage.media,
+                status: 'sent',
+                sentAt: new Date(),
+                isForwarded: true
+            });
+
+            await newMessage.save();
+            await newMessage.populate('senderId', 'name email avatar role');
+
+            room.lastMessage = newMessage._id;
+            room.lastMessageTime = new Date();
+            await room.save();
+
+            forwardedMessages.push(newMessage);
+
+            if (io) {
+                io.of('/chat').to(`room:${roomId}`).emit('message_received', {
+                    _id: newMessage._id,
+                    roomId,
+                    content: newMessage.content,
+                    type: newMessage.type,
+                    media: newMessage.media,
+                    senderId: newMessage.senderId._id,
+                    sender: {
+                        _id: newMessage.senderId._id,
+                        name: newMessage.senderId.name,
+                        email: newMessage.senderId.email,
+                        avatar: newMessage.senderId.avatar,
+                        role: newMessage.senderId.role,
+                    },
+                    createdAt: newMessage.createdAt,
+                    status: 'sent',
+                    isForwarded: true,
+                    optimistic: false,
+                });
+            }
+        }
+
+        return successResponse(res, { forwardedCount: forwardedMessages.length }, 'Message forwarded');
+    } catch (error) {
+        console.error('❌ Error forwarding message:', error);
+        next(error);
+    }
+};
+
 export default {
     getAvailableUsersToChat,
     getAllActiveRooms,
@@ -1534,4 +1625,5 @@ export default {
     getSpecificMemberChats,
     getMemberChatHistory,
     createChatFromContact,
+    forwardMessage,
 };

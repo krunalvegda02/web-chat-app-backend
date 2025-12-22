@@ -13,6 +13,7 @@ export const createAdmin = async () => {
                 password: "123456",
                 role: "SUPER_ADMIN",
                 name: "Super Admin",
+                phone: "1234567890",
                 status: "ACTIVE"
             });
 
