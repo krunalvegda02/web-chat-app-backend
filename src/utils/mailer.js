@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
-import { welcomeEmailTemplate, inviteEmailTemplate, passwordResetEmailTemplate, accountCreatedEmailTemplate } from './emailTemplates.js';
+import { welcomeEmailTemplate, inviteEmailTemplate, passwordResetEmailTemplate, accountCreatedEmailTemplate, otpEmailTemplate, passwordChangedEmailTemplate } from './emailTemplates.js';
 dotenv.config();
 
 const transporter = nodemailer.createTransport({
@@ -50,6 +50,35 @@ export const sendPasswordResetEmail = async (email, name, resetToken, resetUrl) 
         console.log(`✅ Password reset email sent to ${email}`);
     } catch (error) {
         console.error('❌ Failed to send password reset email:', error.message);
+    }
+};
+
+export const sendOTPEmail = async (email, name, otp) => {
+    try {
+        await transporter.sendMail({
+            from: `"Chat App" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: `Your Password Reset OTP - ${otp}`,
+            html: otpEmailTemplate(name, otp)
+        });
+        console.log(`✅ OTP email sent to ${email}`);
+    } catch (error) {
+        console.error('❌ Failed to send OTP email:', error.message);
+        throw error;
+    }
+};
+
+export const sendPasswordChangedEmail = async (email, name) => {
+    try {
+        await transporter.sendMail({
+            from: `"Chat App" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: 'Password Changed Successfully ✅',
+            html: passwordChangedEmailTemplate(name)
+        });
+        console.log(`✅ Password changed email sent to ${email}`);
+    } catch (error) {
+        console.error('❌ Failed to send password changed email:', error.message);
     }
 };
 

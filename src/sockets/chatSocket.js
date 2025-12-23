@@ -21,6 +21,7 @@ const RATE_LIMITS = {
 const userSockets = new Map();
 const userRateLimiters = new Map();
 const activeRoomUsers = new Map();
+const readOnlyRoomUsers = new Map();
 const typingUsers = new Map();
 
 // ============ HELPER CLASSES ============
@@ -266,64 +267,36 @@ export const registerChatSocket = (io) => {
         if (!activeRoomUsers.has(roomId)) {
           activeRoomUsers.set(roomId, new Set());
         }
-        activeRoomUsers.get(roomId).add(userId);
+        if (!readOnlyRoomUsers.has(roomId)) {
+          readOnlyRoomUsers.set(roomId, new Set());
+        }
+        
+        // ✅ Track user based on mode
+        if (readOnly) {
+          readOnlyRoomUsers.get(roomId).add(userId);
+        } else {
+          activeRoomUsers.get(roomId).add(userId);
+        }
 
         console.log(`🏠 [ROOM] User ${userId} (${userRole}) joined room ${roomId} (readOnly: ${readOnly})`);
         console.log(`🔍 [DEBUG] Active users in room ${roomId}:`, Array.from(activeRoomUsers.get(roomId)));
+        console.log(`👁️ [DEBUG] Read-only users in room ${roomId}:`, Array.from(readOnlyRoomUsers.get(roomId)));
 
-        // ✅ Skip marking messages as read if in read-only mode (admin monitoring)
-        const isMonitoring = readOnly || ['SUPER_ADMIN', 'ADMIN', 'TENANT_ADMIN'].includes(userRole);
+        // ✅ Only mark messages as read if user is an actual room participant AND not in read-only mode
+        const isParticipant = room.participants.some(p => 
+          p.userId && p.userId.toString() === userId.toString()
+        );
         
-        if (!isMonitoring) {
-          // Mark messages as read for this user
-          const unreadMessages = await Message.find({
-            roomId,
-            senderId: { $ne: userId },
-            'readBy.userId': { $ne: userId }
-          }).populate('senderId', '_id');
-
-          if (unreadMessages.length > 0) {
-            const messageIds = unreadMessages.map(m => m._id);
-            await Message.updateMany(
-              { _id: { $in: messageIds } },
-              { 
-                $push: { readBy: { userId, readAt: new Date() } },
-                $set: { status: 'read' }
-              }
-            );
-
-            // Group messages by sender and emit to each sender
-            const senderMessages = {};
-            unreadMessages.forEach(msg => {
-              const senderId = msg.senderId._id.toString();
-              if (!senderMessages[senderId]) {
-                senderMessages[senderId] = [];
-              }
-              senderMessages[senderId].push(msg._id);
-            });
-
-            // Emit messages_read event to each sender
-            Object.keys(senderMessages).forEach(senderId => {
-              const readData = {
-                roomId,
-                messageIds: senderMessages[senderId].map(id => id.toString()),
-                readBy: userId,
-                timestamp: new Date()
-              };
-              emitToUser(io, senderId, 'messages_read', readData);
-              console.log(`📡 [JOIN_READ] Emitted messages_read to ${senderId}:`, readData);
-            });
-
-            console.log(`📖 [READ] Marked ${messageIds.length} messages as read for user ${userId}`);
-          }
-
+        if (isParticipant && !readOnly) {
+          console.log(`📖 [JOIN] User ${userId} is participant in non-read-only mode - messages will be marked as read when viewed`);
+          
           // Clear unread count for this user
           if (room.unreadCount && room.unreadCount.has(userId.toString())) {
             room.unreadCount.delete(userId.toString());
             await room.save();
           }
         } else {
-          console.log(`👁️ [MONITOR] Admin ${userId} monitoring room ${roomId} - skipping read status updates`);
+          console.log(`👁️ [MONITOR] User ${userId} is ${!isParticipant ? 'not a participant (monitoring)' : 'in read-only mode'} - skipping read status updates`);
         }
 
         // Broadcast updated room users
@@ -360,6 +333,11 @@ export const registerChatSocket = (io) => {
         const activeUsers = activeRoomUsers.get(roomId);
         if (activeUsers) {
           activeUsers.delete(userId);
+        }
+        
+        const readOnlyUsers = readOnlyRoomUsers.get(roomId);
+        if (readOnlyUsers) {
+          readOnlyUsers.delete(userId);
         }
 
         const typingRoomUsers = typingUsers.get(roomId);
@@ -441,11 +419,19 @@ export const registerChatSocket = (io) => {
         room.lastMessage = message._id;
         room.lastMessageTime = new Date();
 
-        // ✅ IMPORTANT: Don't update unreadCount for sender
+        // ✅ IMPORTANT: Only update unreadCount for recipients who are NOT actively viewing the chat
+        const roomActiveUsers = activeRoomUsers.get(roomId) || new Set();
         room.participants.forEach(participant => {
           if (participant.userId && participant.userId._id && participant.userId._id.toString() !== userId.toString()) {
-            const currentCount = room.unreadCount.get(participant.userId._id.toString()) || 0;
-            room.unreadCount.set(participant.userId._id.toString(), currentCount + 1);
+            const participantId = participant.userId._id.toString();
+            // Only increment unread count if user is NOT actively in the room
+            if (!roomActiveUsers.has(participantId)) {
+              const currentCount = room.unreadCount.get(participantId) || 0;
+              room.unreadCount.set(participantId, currentCount + 1);
+              console.log(`📬 [UNREAD] Incremented unread count for ${participantId} (not in room)`);
+            } else {
+              console.log(`👁️ [ACTIVE] User ${participantId} is actively viewing - not incrementing unread count`);
+            }
           }
         });
 
@@ -488,29 +474,21 @@ export const registerChatSocket = (io) => {
         });
 
         // ✅ Auto-mark as read for users currently active in the room (with delay)
-        // ✅ Exclude admin/super admin users from auto-read
+        // ✅ Only mark as read for actual room participants (not monitors)
         const activeUsers = activeRoomUsers.get(roomId) || new Set();
         const readByUsers = [];
         
+        // Get list of participant IDs
+        const participantIds = room.participants
+          .filter(p => p.userId)
+          .map(p => p.userId._id.toString());
+        
         for (const uid of activeUsers) {
-          if (uid !== userId.toString()) {
-            // Check if user is admin/monitoring
-            const userSocket = userSockets.get(uid);
-            if (userSocket) {
-              const socketObj = io.of('/chat').sockets.get(userSocket);
-              const token = socketObj?.handshake?.auth?.token;
-              if (token) {
-                try {
-                  const decoded = decodeToken(token);
-                  const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'TENANT_ADMIN'].includes(decoded.role);
-                  if (!isAdmin) {
-                    readByUsers.push(uid);
-                  }
-                } catch (e) {
-                  readByUsers.push(uid); // If can't decode, assume regular user
-                }
-              }
-            }
+          if (uid !== userId.toString() && participantIds.includes(uid)) {
+            readByUsers.push(uid);
+            console.log(`  ✅ Will auto-read for participant: ${uid}`);
+          } else if (!participantIds.includes(uid)) {
+            console.log(`  👁️ Skipping non-participant (monitor): ${uid}`);
           }
         }
         
@@ -572,14 +550,29 @@ export const registerChatSocket = (io) => {
         }
 
         // Notify other participants about unread count
-        room.participants.forEach(participant => {
+        for (const participant of room.participants) {
           if (participant.userId && participant.userId._id && participant.userId._id.toString() !== userId.toString()) {
-            emitToUser(io, participant.userId._id.toString(), 'unread_count_updated', {
+            const participantId = participant.userId._id.toString();
+              // ✅ Get other participants' IDs (excluding current participant)
+            const otherParticipantIds = room.participants
+              .filter(p => p.userId && p.userId._id.toString() !== participantId)
+              .map(p => p.userId._id);
+            
+            // ✅ Calculate actual unread count from messages sent by OTHER participants only
+            const actualUnreadCount = await Message.countDocuments({
               roomId,
-              unreadCount: room.unreadCount.get(participant.userId._id.toString()) || 0,
+              senderId: { $in: otherParticipantIds },
+              isDeleted: false,
+              'readBy.userId': { $ne: participantId }
             });
+            
+            emitToUser(io, participantId, 'unread_count_updated', {
+              roomId,
+              unreadCount: actualUnreadCount,
+            });
+            console.log(`📬 [UNREAD] Emitted unread count ${actualUnreadCount} to ${participantId}`);
           }
-        });
+        }
 
         // ✅ ADMIN_CHAT specific notification
         if (room.type === 'ADMIN_CHAT') {
@@ -702,6 +695,16 @@ export const registerChatSocket = (io) => {
         const access = verifyRoomAccess(room, userId, userRole);
         if (!access.valid) return;
 
+        // ✅ Only allow room participants to mark messages as read (not monitors)
+        const isParticipant = room.participants.some(p => 
+          p.userId && p.userId.toString() === userId.toString()
+        );
+        
+        if (!isParticipant) {
+          console.log(`👁️ [MONITOR] User ${userId} is monitoring - cannot mark as read`);
+          return;
+        }
+
         // ✅ Mark all unread messages as read in database
         const result = await Message.updateMany(
           {
@@ -773,6 +776,16 @@ export const registerChatSocket = (io) => {
         const room = await Room.findById(roomId);
         const access = verifyRoomAccess(room, userId, userRole);
         if (!access.valid) return;
+
+        // ✅ Only allow room participants to mark messages as read (not monitors)
+        const isParticipant = room.participants.some(p => 
+          p.userId && p.userId.toString() === userId.toString()
+        );
+        
+        if (!isParticipant) {
+          console.log(`👁️ [MONITOR] User ${userId} is monitoring - cannot mark messages as read`);
+          return;
+        }
 
         // Mark messages as read
         const result = await Message.updateMany(

@@ -127,10 +127,15 @@ export const getAllActiveRooms = async (req, res, next) => {
 
         // Format rooms with display info
         const formattedRooms = await Promise.all(rooms.map(async room => {
-            // ✅ Calculate unread count from messages not marked as read by current user
+            // ✅ Get other participants' IDs
+            const otherParticipantIds = room.participants
+                .filter(p => p.userId && p.userId._id.toString() !== userId.toString())
+                .map(p => p.userId._id);
+
+            // ✅ Calculate unread count from messages sent by OTHER PARTICIPANTS only
             const unreadCount = await Message.countDocuments({
                 roomId: room._id,
-                senderId: { $ne: userId },
+                senderId: { $in: otherParticipantIds },
                 isDeleted: false,
                 'readBy.userId': { $ne: userId }
             });
@@ -157,7 +162,7 @@ export const getAllActiveRooms = async (req, res, next) => {
             if (unreadCount > 0) {
                 firstUnreadMessage = await Message.findOne({
                     roomId: room._id,
-                    senderId: { $ne: userId },
+                    senderId: { $in: otherParticipantIds },
                     isDeleted: false,
                     'readBy.userId': { $ne: userId }
                 })
@@ -514,6 +519,7 @@ export const getRoomMessages = async (req, res, next) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 60;
         const skip = (page - 1) * limit;
+        const readOnly = req.query.readOnly === 'true';
 
         const room = await Room.findById(roomId).populate('participants.userId', 'name email avatar role');
         if (!room) return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
@@ -522,7 +528,7 @@ export const getRoomMessages = async (req, res, next) => {
             p => p.userId && req.user._id && (p.userId._id?.toString() === req.user._id.toString() || p.userId.toString() === req.user._id.toString())
         );
 
-        if (!isParticipant && req.user.role !== 'SUPER_ADMIN') {
+        if (!isParticipant && req.user.role !== 'SUPER_ADMIN' && !['ADMIN', 'TENANT_ADMIN'].includes(req.user.role)) {
             console.error('❌ Authorization failed:', {
                 userId: req.user._id.toString(),
                 roomId,
@@ -532,16 +538,16 @@ export const getRoomMessages = async (req, res, next) => {
             return errorResponse(res, 'Unauthorized access', 403);
         }
 
-        // ✅ Fetch only active (not deleted) messages
+        // ✅ Fetch only active (not deleted) messages - DESCENDING ORDER (newest first)
         const messages = await Message.find({ roomId, isDeleted: false })
             .populate('senderId', 'name email avatar role')
             .populate('readBy.userId', 'name')
             .populate('replyTo')
             .populate('callLog.callerId', 'name email avatar')
             .populate('callLog.receiverId', 'name email avatar')
+            .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .sort({ createdAt: 1 })
             .lean();
 
         const total = await Message.countDocuments({ roomId, isDeleted: false });
@@ -723,8 +729,10 @@ export const getAllChats = async (req, res, next) => {
 
         const skip = (page - 1) * limit;
 
-        // Fetch all rooms
-        const rooms = await Room.find()
+        // ✅ Fetch all rooms EXCLUDING rooms where SuperAdmin is a participant
+        const rooms = await Room.find({
+            'participants.userId': { $ne: req.user._id }
+        })
             .populate('participants.userId', 'name email avatar role')
             .populate('lastMessage')
             .skip(skip)
@@ -732,7 +740,9 @@ export const getAllChats = async (req, res, next) => {
             .sort({ lastMessageTime: -1 })
             .lean();
 
-        const total = await Room.countDocuments();
+        const total = await Room.countDocuments({
+            'participants.userId': { $ne: req.user._id }
+        });
 
         const roomsWithStats = rooms.map(room => ({
             ...room,
@@ -1182,10 +1192,10 @@ export const getAdminMemberChats = async (req, res, next) => {
             });
         }
 
-        // ✅ Get all rooms where members are participants
+        // ✅ Get all rooms where members are participants BUT admin is NOT a participant
         const rooms = await Room.find({
             tenantId,
-            'participants.userId': { $in: memberIds }
+            'participants.userId': { $in: memberIds, $ne: req.user._id }
         })
             .populate('participants.userId', 'name email avatar role')
             .populate('lastMessage')

@@ -4,6 +4,37 @@ import MESSAGE from "../constants/message.js";
 import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/cloudinary.js";
 
 /* ============================================
+   SEARCH USERS BY EMAIL OR PHONE
+============================================ */
+const searchUsers = async (req, res, next) => {
+  try {
+    const { query } = req.query;
+
+    if (!query || !query.trim()) {
+      return errorResponse(res, 'Search query is required', 400);
+    }
+
+    const searchTerm = query.trim();
+
+    // Search by email or phone
+    const users = await User.find({
+      $or: [
+        { email: { $regex: searchTerm, $options: 'i' } },
+        { phone: { $regex: searchTerm, $options: 'i' } },
+        { name: { $regex: searchTerm, $options: 'i' } }
+      ],
+      _id: { $ne: req.user._id } // Exclude current user
+    })
+    .select('-password -refreshTokens')
+    .limit(20);
+
+    return successResponse(res, { users });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* ============================================
    GET USER BY ID
 ============================================ */
 const getUserById = async (req, res, next) => {
@@ -113,6 +144,7 @@ const markNotificationAsRead = async (req, res, next) => {
    DEFAULT EXPORT (Optional, for grouped import)
 ============================================ */
 export default {
+  searchUsers,
   getUserById,
   updateProfile,
   getNotifications,

@@ -6,6 +6,7 @@ import connectDB from "./db/index.js";
 import app, { setupSockets } from "./app.js";
 import { ensureDirectoryExists } from "./utils/ensureDirectoryExists.js";
 import { createAdmin } from "./utils/createAdmin.js";
+import './config/firebase-admin.js'; // Initialize Firebase Admin
 
 dotenv.config({ path: "./.env" });
 

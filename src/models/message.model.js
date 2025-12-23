@@ -102,6 +102,11 @@ const messageSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
+    // ✅ Delete for me tracking
+    deletedForUsers: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }],
 
     // ✅ Reply to another message
     replyTo: {

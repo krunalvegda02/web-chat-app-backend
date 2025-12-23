@@ -31,6 +31,15 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  // Password reset fields
+  passwordResetToken: {
+    type: String,
+    default: null,
+  },
+  passwordResetExpiry: {
+    type: Date,
+    default: null,
+  },
   password: {
     type: String,
     required: [true, 'Password is required'],
@@ -85,6 +94,24 @@ const userSchema = new mongoose.Schema({
         ref: 'User',
       },
       blockedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    },
+  ],
+  // FCM tokens for push notifications
+  fcmTokens: [
+    {
+      token: {
+        type: String,
+        required: true,
+      },
+      platform: {
+        type: String,
+        enum: ['web', 'android', 'ios'],
+        default: 'web',
+      },
+      createdAt: {
         type: Date,
         default: Date.now,
       },
@@ -155,17 +182,19 @@ userSchema.pre('save', async function (next) {
 // Auto-clean expired and revoked tokens before saving
 userSchema.pre('save', function (next) {
   // Remove expired or revoked tokens
-  this.refreshTokens = this.refreshTokens.filter(
-    (token) => token.expiresAt > new Date() && !token.revokedAt
-  );
+  if (this.refreshTokens && Array.isArray(this.refreshTokens)) {
+    this.refreshTokens = this.refreshTokens.filter(
+      (token) => token.expiresAt > new Date() && !token.revokedAt
+    );
 
-  // Keep only last 5 active tokens
-  if (this.refreshTokens.length > 5) {
-    this.refreshTokens = this.refreshTokens.slice(-5);
+    // Keep only last 5 active tokens
+    if (this.refreshTokens.length > 5) {
+      this.refreshTokens = this.refreshTokens.slice(-5);
+    }
   }
-
   next();
 });
+    
 
 // ========== METHODS ==========
 

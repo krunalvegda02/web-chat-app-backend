@@ -217,6 +217,100 @@ export const accountCreatedEmailTemplate = (name) => {
 };
 
 /**
+ * OTP email template
+ */
+export const otpEmailTemplate = (name, otp) => {
+    return `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f5f5f5; padding: 20px;">
+            <div style="background: linear-gradient(135deg, #008069 0%, #00a884 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+                <h1 style="margin: 0; font-size: 28px;">Password Reset OTP 🔐</h1>
+            </div>
+            <div style="background-color: white; padding: 30px; border-radius: 0 0 10px 10px;">
+                <p style="margin: 0 0 20px 0; color: #333; font-size: 16px;">Hi ${name || 'there'},</p>
+                
+                <p style="margin: 0 0 20px 0; color: #666; font-size: 14px; line-height: 1.6;">
+                    Your password reset OTP is:
+                </p>
+
+                <div style="text-align: center; margin: 30px 0; padding: 25px; background: linear-gradient(135deg, #f0f2f5 0%, #e9edef 100%); border-radius: 10px; border: 2px dashed #008069;">
+                    <p style="margin: 0; font-size: 42px; font-weight: bold; color: #008069; letter-spacing: 8px; font-family: 'Courier New', monospace;">
+                        ${otp}
+                    </p>
+                    <p style="margin: 15px 0 0 0; color: #d32f2f; font-size: 13px; font-weight: 600;">
+                        ⏱️ Expires in 10 minutes
+                    </p>
+                </div>
+
+                <p style="margin: 0 0 20px 0; color: #666; font-size: 14px; line-height: 1.6;">
+                    Enter this code on the password reset page to continue.
+                </p>
+
+                <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 0; color: #856404; font-size: 13px;">
+                        ⚠️ <strong>Security Notice:</strong> Never share this code with anyone. Our team will never ask for your OTP.
+                    </p>
+                </div>
+
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+                
+                <p style="margin: 0 0 10px 0; color: #666; font-size: 12px; line-height: 1.6;">
+                    If you didn't request this password reset, please ignore this email and ensure your account is secure.
+                </p>
+
+                <p style="margin: 0; color: #999; font-size: 12px; text-align: center;">
+                    This is an automated message, please do not reply.
+                </p>
+            </div>
+        </div>
+    `;
+};
+
+/**
+ * Password changed successfully email template
+ */
+export const passwordChangedEmailTemplate = (name) => {
+    return `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f5f5f5; padding: 20px;">
+            <div style="background: linear-gradient(135deg, #008069 0%, #00a884 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+                <h1 style="margin: 0; font-size: 28px;">Password Changed ✅</h1>
+            </div>
+            <div style="background-color: white; padding: 30px; border-radius: 0 0 10px 10px;">
+                <p style="margin: 0 0 20px 0; color: #333; font-size: 16px;">Hi ${name || 'there'},</p>
+                
+                <p style="margin: 0 0 20px 0; color: #666; font-size: 14px; line-height: 1.6;">
+                    Your password has been changed successfully. You can now log in with your new password.
+                </p>
+
+                <div style="text-align: center; margin: 30px 0; padding: 20px; background: #e8f5e9; border-radius: 10px; border-left: 4px solid #4caf50;">
+                    <p style="margin: 0; font-size: 48px; color: #4caf50;">✓</p>
+                    <p style="margin: 10px 0 0 0; color: #2e7d32; font-size: 16px; font-weight: 600;">
+                        Password Updated Successfully
+                    </p>
+                </div>
+
+                <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; border-radius: 5px; margin: 20px 0;">
+                    <p style="margin: 0; color: #856404; font-size: 13px;">
+                        ⚠️ <strong>Security Alert:</strong> If you didn't make this change, please contact support immediately.
+                    </p>
+                </div>
+
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${process.env.FRONTEND_URL || 'https://example.com'}/login" style="display: inline-block; padding: 12px 30px; background: linear-gradient(135deg, #008069 0%, #00a884 100%); color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                        Go to Login
+                    </a>
+                </div>
+
+                <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+                
+                <p style="margin: 0; color: #999; font-size: 12px; text-align: center;">
+                    For security, we recommend using a strong, unique password.
+                </p>
+            </div>
+        </div>
+    `;
+};
+
+/**
  * Login alert email template
  */
 export const loginAlertEmailTemplate = (name, deviceInfo, timestamp) => {

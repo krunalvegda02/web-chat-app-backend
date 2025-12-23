@@ -11,7 +11,7 @@ import {
 } from '../utils/tokenUtils.js';
 import { successResponse, errorResponse } from '../utils/response.js';
 import { validateEmail, validatePassword, validatePhone } from '../utils/validators.js';
-import { sendWelcomeEmail, sendPhoneVerificationSMS, sendPasswordResetEmail } from '../utils/mailer.js';
+import { sendWelcomeEmail, sendPhoneVerificationSMS, sendPasswordResetEmail, sendOTPEmail, sendPasswordChangedEmail } from '../utils/mailer.js';
 import MESSAGE from '../constants/message.js';
 import { getInviteInfo } from './tenant.controller.js';
 
@@ -182,11 +182,56 @@ const login = async (req, res, next) => {
 };
 
 // ===============================
-// 3. VERIFY PHONE NUMBER
+// 3. SEND PHONE VERIFICATION CODE
+// ===============================
+export const sendPhoneVerification = async (req, res, next) => {
+  try {
+    const userId = req.user?._id || req.body.userId;
+
+    if (!userId) {
+      return errorResponse(res, 'User ID required', 400);
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
+    }
+
+    if (!user.phone) {
+      return errorResponse(res, 'No phone number registered', 400);
+    }
+
+    if (user.phoneVerified) {
+      return errorResponse(res, 'Phone already verified', 400);
+    }
+
+    // Generate 6-digit verification code
+    const verificationCode = generatePhoneVerificationToken();
+    user.phoneVerificationToken = verificationCode;
+    await user.save();
+
+    // Send SMS
+    sendPhoneVerificationSMS(user.phone, verificationCode).catch(err =>
+      console.error('Phone verification SMS failed:', err)
+    );
+
+    console.log(`✅ [PHONE_VERIFY] Code sent to ${user.phone}`);
+
+    return successResponse(res, null, 'Verification code sent successfully');
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ===============================
+// 4. VERIFY PHONE NUMBER
 // ===============================
 export const verifyPhoneNumber = async (req, res, next) => {
   try {
-    const { userId, code } = req.body;
+    const userId = req.user?._id || req.body.userId;
+    const { code } = req.body;
 
     if (!userId || !code) {
       return errorResponse(res, 'User ID and verification code required', 400);
@@ -202,12 +247,10 @@ export const verifyPhoneNumber = async (req, res, next) => {
       return errorResponse(res, 'No active phone verification', 400);
     }
 
-    // ✅ Verify code matches
     if (user.phoneVerificationToken !== code) {
       return errorResponse(res, 'Invalid verification code', 401);
     }
 
-    // ✅ Mark phone as verified
     user.phoneVerified = true;
     user.phoneVerificationToken = null;
     await user.save();
@@ -222,7 +265,7 @@ export const verifyPhoneNumber = async (req, res, next) => {
 };
 
 // ===============================
-// 4. FORGOT PASSWORD - VIA EMAIL OR PHONE
+// 5. FORGOT PASSWORD - SEND OTP
 // ===============================
 const forgotPassword = async (req, res, next) => {
   try {
@@ -232,7 +275,6 @@ const forgotPassword = async (req, res, next) => {
       return errorResponse(res, 'Email or phone required', 400);
     }
 
-    // ✅ Find user
     let query = {};
     if (email) {
       validateEmail(email);
@@ -245,34 +287,29 @@ const forgotPassword = async (req, res, next) => {
     const user = await User.findOne(query);
 
     if (!user) {
-      // ✅ Security: Don't reveal if user exists
-      return successResponse(res, null, 'If account exists, reset link will be sent');
+      return errorResponse(res, 'Account not found', 404);
     }
 
-    // ✅ Generate reset token
-    const resetToken = generatePasswordResetToken();
-    const resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    user.passwordResetToken = resetToken;
-    user.passwordResetExpiry = resetTokenExpiry;
+    user.passwordResetToken = otp;
+    user.passwordResetExpiry = otpExpiry;
     await user.save();
 
-    // ✅ Send reset link via email or SMS
+    // Send OTP
     if (email) {
-      const resetLink = `${process.env.FRONTEND_URL}/auth/reset-password?token=${resetToken}`;
-      sendPasswordResetEmail(user.email, user.name, resetLink).catch(err =>
-        console.error('Password reset email failed:', err)
-      );
-    } else if (user.phone && user.phoneVerified) {
-      // Send OTP via SMS
-      sendPhoneVerificationSMS(user.phone, resetToken).catch(err =>
-        console.error('Password reset SMS failed:', err)
+      await sendOTPEmail(user.email, user.name, otp);
+    } else if (user.phone) {
+      sendPhoneVerificationSMS(user.phone, otp).catch(err =>
+        console.error('OTP SMS failed:', err)
       );
     }
 
-    console.log(`✅ [FORGOT_PASSWORD] Reset token sent to ${email || phone}`);
+    console.log(`✅ [FORGOT_PASSWORD] OTP sent to ${email || phone}`);
 
-    return successResponse(res, null, 'Reset link sent. Check your email or SMS');
+    return successResponse(res, null, 'OTP sent successfully');
 
   } catch (error) {
     next(error);
@@ -280,40 +317,97 @@ const forgotPassword = async (req, res, next) => {
 };
 
 // ===============================
-// 5. RESET PASSWORD - WITH TOKEN VALIDATION
+// 6. VERIFY OTP
+// ===============================
+const verifyResetOTP = async (req, res, next) => {
+  try {
+    const { email, phone, otp } = req.body;
+
+    if (!otp) {
+      return errorResponse(res, 'OTP is required', 400);
+    }
+
+    if (!email && !phone) {
+      return errorResponse(res, 'Email or phone required', 400);
+    }
+
+    let query = {};
+    if (email) {
+      query.email = email;
+    } else {
+      query.phone = phone.replace(/\D/g, '');
+    }
+
+    const user = await User.findOne({
+      ...query,
+      passwordResetToken: otp,
+      passwordResetExpiry: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return errorResponse(res, 'Invalid or expired OTP', 401);
+    }
+
+    console.log(`✅ [VERIFY_OTP] OTP verified for ${email || phone}`);
+
+    return successResponse(res, { verified: true }, 'OTP verified successfully');
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ===============================
+// 7. RESET PASSWORD - WITH OTP
 // ===============================
 const resetPassword = async (req, res, next) => {
   try {
-    const { token, password, confirmPassword } = req.body;
+    const { email, phone, otp, password, confirmPassword } = req.body;
 
-    if (!token || !password || !confirmPassword) {
-      return errorResponse(res, MESSAGE.TOKEN_PASSWORD_REQUIRED, 400);
+    if (!otp || !password || !confirmPassword) {
+      return errorResponse(res, 'OTP and passwords are required', 400);
     }
 
-    // ✅ Validate password strength
+    if (!email && !phone) {
+      return errorResponse(res, 'Email or phone required', 400);
+    }
+
     validatePassword(password);
 
     if (password !== confirmPassword) {
       return errorResponse(res, MESSAGE.PASSWORDS_NOT_MATCH, 400);
     }
 
-    // ✅ Find user with valid reset token
+    let query = {};
+    if (email) {
+      query.email = email;
+    } else {
+      query.phone = phone.replace(/\D/g, '');
+    }
+
     const user = await User.findOne({
-      passwordResetToken: token,
+      ...query,
+      passwordResetToken: otp,
       passwordResetExpiry: { $gt: new Date() }
     });
 
     if (!user) {
-      return errorResponse(res, 'Invalid or expired reset token', 401);
+      return errorResponse(res, 'Invalid or expired OTP', 401);
     }
 
-    // ✅ Update password
     user.password = password;
     user.passwordResetToken = null;
     user.passwordResetExpiry = null;
     await user.save();
 
-    console.log(`✅ [RESET_PASSWORD] User ${user.email} password reset successfully`);
+    // Send success email
+    if (user.email) {
+      sendPasswordChangedEmail(user.email, user.name).catch(err =>
+        console.error('Password changed email failed:', err)
+      );
+    }
+
+    console.log(`✅ [RESET_PASSWORD] Password reset for ${email || phone}`);
 
     return successResponse(res, null, MESSAGE.PASSWORD_RESET_SUCCESSFUL);
 
@@ -323,7 +417,7 @@ const resetPassword = async (req, res, next) => {
 };
 
 // ===============================
-// 6. REGISTER WITH INVITE - WITH CONTACT
+// 8. REGISTER WITH INVITE - WITH CONTACT
 // ===============================
 export const registerWithInvite = async (req, res, next) => {
   try {
@@ -466,7 +560,7 @@ export const registerWithInvite = async (req, res, next) => {
 };
 
 // ===============================
-// 7. UPDATE PROFILE - WITH PHONE
+// 9. UPDATE PROFILE - WITH PHONE
 // ===============================
 export const updateProfile = async (req, res, next) => {
   try {
@@ -643,12 +737,13 @@ export default {
   logoutAll,
   getSessions,
   revokeSession,
+  sendPhoneVerification,
+  verifyPhoneNumber,
   forgotPassword,
+  verifyResetOTP,
   resetPassword,
   registerWithInvite,
-  verifyPhoneNumber,
   updateProfile,
   me,
   getInviteInfo,
-
 };

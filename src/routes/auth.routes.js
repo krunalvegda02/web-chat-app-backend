@@ -12,7 +12,10 @@ router.post(API.AUTH.REGISTER, authController.register);
 router.post(API.AUTH.LOGIN, authController.login);
 router.post(API.AUTH.REFRESH_TOKEN, authController.refreshToken);
 router.post(API.AUTH.FORGOT_PASSWORD, authController.forgotPassword);
+router.post('/verify-reset-otp', authController.verifyResetOTP);
 router.post(API.AUTH.RESET_PASSWORD, authController.resetPassword);
+router.post('/send-phone-verification', authController.sendPhoneVerification);
+router.post('/verify-phone', authController.verifyPhoneNumber);
 
 
 router.post(API.AUTH.REGISTER_WITH_INVITE, authController.registerWithInvite);
