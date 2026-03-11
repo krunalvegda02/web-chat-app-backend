@@ -277,6 +277,70 @@ export const getAllActiveRooms = async (req, res, next) => {
     }
 };
 
+// ✅ GET ROOM MESSAGES - PUBLIC (No authentication required)
+export const getRoomMessagesPublic = async (req, res, next) => {
+    try {
+        const { roomId } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 60;
+        const skip = (page - 1) * limit;
+
+        const room = await Room.findById(roomId).populate('participants.userId', 'name email avatar role');
+        if (!room) return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
+
+        console.log(`📖 [PUBLIC] Fetching messages for room ${roomId}`);
+
+        const messages = await Message.find({ roomId, isDeleted: false })
+            .populate('senderId', 'name email avatar role')
+            .populate('readBy.userId', 'name')
+            .populate('replyTo')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean();
+
+        const total = await Message.countDocuments({ roomId, isDeleted: false });
+
+        let displayName = room.name;
+        let displayPhone = null;
+        if (room.type === 'DIRECT' || room.type === 'ADMIN_CHAT') {
+            const otherParticipant = room.participants.find(p =>
+                p.userId && p.userId._id
+            );
+            
+            if (otherParticipant?.userId?.name) {
+                displayName = otherParticipant.userId.name;
+            } else if (otherParticipant?.userId?.phone) {
+                displayName = otherParticipant.userId.phone;
+            }
+            
+            displayPhone = otherParticipant?.userId?.phone || null;
+        }
+
+        return successResponse(res, {
+            roomId,
+            room: {
+                _id: room._id,
+                name: displayName,
+                displayPhone: displayPhone,
+                type: room.type,
+                participants: room.participants
+            },
+            messages: messages,
+            pagination: {
+                page,
+                limit,
+                total,
+                pages: Math.ceil(total / limit),
+                hasMore: page < Math.ceil(total / limit)
+            }
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
 // ✅ GET ROOM MESSAGES
 export const getRoomMessages = async (req, res, next) => {
     try {
@@ -470,6 +534,7 @@ export default {
     createOrGetRoom,
     getAllActiveRooms,
     getRoomMessages,
+    getRoomMessagesPublic,
     sendMessageWithMedia,
     markRoomAsRead,
 };

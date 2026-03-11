@@ -32,7 +32,7 @@ const roomSchema = new mongoose.Schema(
     },
     createdVia: {
       type: String,
-      enum: ['direct', 'contact', 'group', 'admin'],
+      enum: ['direct', 'contact', 'group', 'admin', 'platform-integration'],
       default: 'direct'
     },
 

@@ -6,6 +6,21 @@ import { API } from '../constants/endpoints.js';
 const router = express.Router();
 
 /* =====================================================
+   PUBLIC ROUTES (No authentication required)
+   ===================================================== */
+// ✅ Public endpoint for fetching room data and messages (for platform users)
+router.get(
+    '/public/room/:roomId',
+    chatController.getRoomMessagesPublic
+);
+
+// ✅ Public endpoint for fetching messages only
+router.get(
+    '/public/rooms/:roomId/messages',
+    chatController.getRoomMessagesPublic
+);
+
+/* =====================================================
    AUTH MIDDLEWARE
    ===================================================== */
 router.use(verifyJWT);

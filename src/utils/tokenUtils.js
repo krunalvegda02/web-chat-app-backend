@@ -4,8 +4,16 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import MESSAGE from "../constants/message.js";
 
-const jwtSecret = process.env.JWT_SECRET;
-const jwtExpire = process.env.JWT_EXPIRE;
+// ✅ CRITICAL FIX: Load secrets dynamically to ensure .env is loaded
+// Trim whitespace to handle dotenv quirks
+const getJwtSecret = () => {
+    const secret = process.env.JWT_SECRET;
+    return secret ? secret.trim() : undefined;
+};
+const getJwtExpire = () => {
+    const expire = process.env.JWT_EXPIRE;
+    return expire ? expire.trim() : undefined;
+};
 
 // ============================================================================
 // EXISTING FUNCTIONS (Keep these as-is)
@@ -24,10 +32,18 @@ const generateAccessToken = (userId, email, role, contextId) => {
         payload.tenantId = contextId || null;
     }
     
+    const secret = getJwtSecret();
+    if (!secret) {
+        throw new Error('JWT_SECRET is not configured in environment variables');
+    }
+    
+    const secretHash = crypto.createHash('sha256').update(secret).digest('hex').substring(0, 16);
+    console.log(`✅ [TOKEN] Generating token | Secret length: ${secret.length} | Hash: ${secretHash}...`);
+    
     return jwt.sign(
         payload,
-        jwtSecret,
-        { expiresIn: jwtExpire || '24h' }
+        secret,
+        { expiresIn: getJwtExpire() || '24h' }
     );
 };
 
@@ -156,9 +172,23 @@ const revokeUserSessionByAgent = async (userId, userAgent) => {
  */
 const decodeToken = (token) => {
     try {
-        return jwt.verify(token, jwtSecret);
+        const secret = getJwtSecret();
+        if (!secret) {
+            console.error('❌ [TOKEN] JWT_SECRET is undefined');
+            throw new Error('JWT_SECRET is not configured in environment variables');
+        }
+        
+        const secretHash = crypto.createHash('sha256').update(secret).digest('hex').substring(0, 16);
+        console.log(`🔍 [TOKEN] Verifying token | Secret length: ${secret.length} | Hash: ${secretHash}...`);
+        
+        // Decode without verification first to see what's inside
+        const decoded = jwt.decode(token);
+        console.log(`🔍 [TOKEN] Token payload:`, decoded);
+        
+        return jwt.verify(token, secret);
     } catch (error) {
-        console.error('Error decoding token:', error);
+        console.error('❌ [TOKEN] Error decoding token:', error.message);
+        console.error('❌ [TOKEN] Full error:', error);
         return null;
     }
 };
@@ -278,7 +308,12 @@ const verifyAndDecodeToken = (token) => {
             ? token.slice(7) 
             : token;
         
-        return jwt.verify(cleanToken, jwtSecret);
+        const secret = getJwtSecret();
+        if (!secret) {
+            throw new Error('JWT_SECRET is not configured in environment variables');
+        }
+        
+        return jwt.verify(cleanToken, secret);
     } catch (error) {
         console.error('Error verifying token:', error.message);
         return null;

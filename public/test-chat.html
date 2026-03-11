@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Platform - Chat Integration</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #25d366;
+            box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #25d366;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #20ba5a;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(37, 211, 102, 0.3);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .info-box {
+            background: #f0f9ff;
+            border-left: 4px solid #25d366;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .whatsapp-icon {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: #25d366;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(37, 211, 102, 0.4);
+            transition: all 0.3s;
+            z-index: 999;
+            animation: pulse 2s infinite;
+        }
+
+        .whatsapp-icon:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(37, 211, 102, 0.6);
+        }
+
+        .whatsapp-icon svg {
+            width: 32px;
+            height: 32px;
+            fill: white;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 4px 12px rgba(37, 211, 102, 0.4);
+            }
+            50% {
+                box-shadow: 0 4px 20px rgba(37, 211, 102, 0.8);
+            }
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .status.loading {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 25px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .whatsapp-icon {
+                bottom: 20px;
+                right: 20px;
+                width: 50px;
+                height: 50px;
+            }
+
+            .whatsapp-icon svg {
+                width: 28px;
+                height: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Test Platform</h1>
+            <p>Test chat integration with our platform</p>
+        </div>
+
+        <div class="info-box">
+            <strong>ℹ️ Secure Integration Test:</strong><br>
+            This test uses the secure platform integration API with proper authentication and validation. Your platform will need an API key for production use.
+        </div>
+
+        <form id="testForm">
+            <div class="form-group">
+                <label for="name">Your Name *</label>
+                <input type="text" id="name" name="name" placeholder="Enter your name" required>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email Address *</label>
+                <input type="email" id="email" name="email" placeholder="Enter your email" value="test@example.com" required>
+            </div>
+
+            <div class="form-group">
+                <label for="phone">Phone Number *</label>
+                <input type="tel" id="phone" name="phone" placeholder="Enter your phone number" value="1234567890" required>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="btn-primary">Start Chat</button>
+                <button type="reset" class="btn-secondary">Clear</button>
+            </div>
+
+            <div class="info-box">
+                <strong>💡 Tip:</strong> Use the same email and phone to access the same chat room. Different email/phone = different room.
+            </div>
+
+            <div id="status" class="status"></div>
+        </form>
+    </div>
+
+    <!-- WhatsApp Floating Icon -->
+    <div class="whatsapp-icon" id="whatsappIcon" title="Click to start chat">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.67-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.076 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421-7.403h-.004c-1.052 0-2.082.398-2.847 1.12-.735.71-1.14 1.656-1.14 2.66 0 1.04.415 2.049 1.144 2.792l.002.002c.832.888 1.959 1.438 3.285 1.438h.005c1.321 0 2.442-.547 3.279-1.43l-.002-.002c.467-.507.826-1.095 1.056-1.72.23-.624.347-1.292.347-1.961 0-1.047-.413-2.053-1.148-2.773-.753-.74-1.787-1.148-2.882-1.148zm5.031-.78c-1.582-1.631-3.779-2.53-6.031-2.53-4.765 0-8.637 3.808-8.637 8.531 0 1.5.392 2.969 1.142 4.285L2.06 22l4.537-1.375c1.289.703 2.739 1.072 4.237 1.072h4.236c4.765 0 8.638-3.808 8.638-8.531 0-2.28-.882-4.411-2.48-6.02z"/>
+        </svg>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:5500/api/v1';
+        const PLATFORM_URL = 'http://localhost:5173';
+
+        const form = document.getElementById('testForm');
+        const statusDiv = document.getElementById('status');
+        const whatsappIcon = document.getElementById('whatsappIcon');
+        let platformId = null;
+
+        // Fetch platform ID on page load
+        async function fetchPlatformId() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/platforms/public/list`);
+                const data = await response.json();
+                
+                if (data.data && data.data.platforms && data.data.platforms.length > 0) {
+                    platformId = data.data.platforms[0]._id;
+                    console.log('Platform ID:', platformId);
+                } else {
+                    console.error('No platforms found');
+                    showStatus('Error: No platforms available. Please create a platform first.', 'error');
+                }
+            } catch (error) {
+                console.error('Error fetching platform:', error);
+                showStatus('Error: Could not fetch platform information', 'error');
+            }
+        }
+
+        // Handle form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!platformId) {
+                showStatus('Platform not loaded. Please refresh the page.', 'error');
+                return;
+            }
+
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+
+            if (!name || !email || !phone) {
+                showStatus('Please fill all fields', 'error');
+                return;
+            }
+
+            showStatus('Logging in and creating chat room...', 'loading');
+
+            try {
+                // Call secure integration endpoint
+                const response = await fetch(`${API_BASE_URL}/platforms/integration/chat-login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': 'test-api-key', // In production, use your actual API key
+                    },
+                    body: JSON.stringify({
+                        name,
+                        email,
+                        phone,
+                        externalUserId: `test_${Date.now()}`, // Optional external user ID
+                    })
+                });
+
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Response error:', errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Login failed');
+                }
+
+                console.log('Login successful:', data.data);
+                console.log('Room ID:', data.data.room._id);
+                console.log('Access Token:', data.data.accessToken.substring(0, 20) + '...');
+
+                showStatus('✓ Login successful! Redirecting to chat...', 'success');
+
+                // ✅ Store auth data in the EXACT format Redux-persist expects
+                const authState = {
+                    user: data.data.user,
+                    loading: false,
+                    error: null,
+                    initialized: true,
+                    token: data.data.accessToken,
+                    refreshToken: data.data.refreshToken,
+                    inviteInfo: null,
+                    inviteLoading: false,
+                    inviteError: null,
+                };
+
+                // ✅ CRITICAL: Store in persist:root format with auth nested inside
+                const persistState = {
+                    auth: JSON.stringify(authState),
+                    _persist: JSON.stringify({
+                        version: -1,
+                        rehydrated: true
+                    })
+                };
+                localStorage.setItem('persist:root', JSON.stringify(persistState));
+                
+                // Also store individual tokens for quick access
+                localStorage.setItem('authToken', data.data.accessToken);
+                localStorage.setItem('refreshToken', data.data.refreshToken);
+                
+                console.log('✅ Auth data stored in localStorage');
+
+                // ✅ Wait longer for Redux-persist to rehydrate, then redirect to chat room
+                setTimeout(() => {
+                    // ✅ For PLATFORM_ADMIN users, redirect directly to the chat room WITH platform parameters
+                    const baseUrl = `${PLATFORM_URL}${data.data.redirectUrl}`;
+                    const platformParams = new URLSearchParams({
+                        apiKey: 'test-api-key',
+                        name: name,
+                        email: email,
+                        phone: phone,
+                        autoLogin: 'true',
+                        platform: 'test'
+                    });
+                    const redirectUrl = `${baseUrl}?${platformParams.toString()}`;
+                    console.log('✅ Redirect URL:', redirectUrl);
+                    
+                    // Don't show the URL in status to avoid HTML encoding
+                    showStatus('✅ Redirecting to chat...', 'success');
+                    
+                    setTimeout(() => {
+                        window.location.href = redirectUrl;
+                    }, 1000);
+                }, 2000); // Increased delay to 2 seconds
+
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        });
+
+        // WhatsApp icon click handler
+        whatsappIcon.addEventListener('click', () => {
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+
+            if (!name || !email || !phone) {
+                showStatus('Please fill all fields first', 'error');
+                return;
+            }
+
+            form.dispatchEvent(new Event('submit'));
+        });
+
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            
+            if (type === 'success' || type === 'error') {
+                setTimeout(() => {
+                    statusDiv.className = 'status';
+                }, 5000);
+            }
+        }
+
+        // Pre-fill form if coming back from platform
+        window.addEventListener('load', () => {
+            fetchPlatformId();
+        });
+    </script>
+</body>
+</html>

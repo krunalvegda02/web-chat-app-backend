@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -9,26 +8,41 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config();
-
 const app = express();
 
-// Rate limiter to prevent API spam
-const apiLimiter = rateLimit({
-  windowMs: 1000, // 1 second
-  max: 20, // Max 20 requests per second per IP
-  message: { success: false, message: 'Too many requests, please slow down' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req, res) => {
-    console.log(`⚠️ [RATE_LIMIT] Blocked ${req.method} ${req.path} from ${req.ip}`);
-    res.status(429).json({ success: false, message: 'Too many requests, please slow down' });
-  }
-});
+// Rate limiter disabled for debugging
+// const apiLimiter = rateLimit({
+//   windowMs: 60 * 1000, // 1 minute
+//   max: 100, // Max 100 requests per minute per IP
+//   message: { success: false, message: 'Too many requests, please slow down' },
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   handler: (req, res) => {
+//     console.log(`⚠️ [RATE_LIMIT] Blocked ${req.method} ${req.path} from ${req.ip}`);
+//     res.status(429).json({ success: false, message: 'Too many requests, please slow down' });
+//   }
+// });
+
+const allowedOrigins = [
+  process.env.CORS_ORIGIN,
+  'http://localhost:5500', // Backend server serving test-chat.html
+  'http://localhost:5501',
+  'http://127.0.0.1:5501',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173', // Frontend Vite dev server
+  'http://127.0.0.1:5173',
+];
 
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   })
 );
@@ -44,8 +58,8 @@ app.use(cookieParser());
 
 
 
-// Apply rate limiter
-app.use('/api/', apiLimiter);
+// Apply rate limiter - DISABLED FOR DEBUGGING
+// app.use('/api/', apiLimiter);
 
 // Request logging (after rate limiter)
 app.use((req, res, next) => {
