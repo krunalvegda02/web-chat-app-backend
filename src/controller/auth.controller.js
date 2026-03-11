@@ -90,8 +90,9 @@ const register = async (req, res, next) => {
       console.error('Welcome email failed:', err)
     );
 
-    // ✅ Generate tokens
-    const accessToken = generateAccessToken(user._id, user.email, user.role, user.tenantId);
+    // ✅ Generate tokens (use platformId for PLATFORM_ADMIN, tenantId for others)
+    const tokenContext = user.role === 'PLATFORM_ADMIN' ? user.platformId : (user.tenantId || null);
+    const accessToken = generateAccessToken(user._id, user.email, user.role, tokenContext);
     const refreshToken = await saveRefreshToken(
       user._id,
       req.ip,
@@ -160,15 +161,16 @@ const login = async (req, res, next) => {
     user.lastLogin = new Date();
     await user.save();
 
-    // ✅ Generate tokens
-    const accessToken = generateAccessToken(user._id, user.email, user.role, user.tenantId);
+    // ✅ Generate tokens (use platformId for PLATFORM_ADMIN, tenantId for others)
+    const tokenContext = user.role === 'PLATFORM_ADMIN' ? user.platformId : (user.tenantId || null);
+    const accessToken = generateAccessToken(user._id, user.email, user.role, tokenContext);
     const refreshToken = await saveRefreshToken(
       user._id,
       req.ip,
       req.headers['user-agent']
     );
 
-    console.log(`✅ [LOGIN] User ${user.email} logged in`);
+    console.log(`✅ [LOGIN] User ${user.email} logged in with role ${user.role}`);
 
     return successResponse(res, {
       user: user.toJSON(),
@@ -650,8 +652,9 @@ const refreshToken = async (req, res, next) => {
     const user = await User.findById(decoded.userId);
     if (!user) return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
 
+    const tokenContext = user.role === 'PLATFORM_ADMIN' ? user.platformId : (user.tenantId || null);
     const newAccessToken = generateAccessToken(
-      user._id, user.email, user.role, user.tenantId
+      user._id, user.email, user.role, tokenContext
     );
 
     return successResponse(res, { accessToken: newAccessToken });
@@ -668,7 +671,12 @@ const logout = async (req, res, next) => {
       return errorResponse(res, MESSAGE.REFRESH_TOKEN_REQUIRED, 400);
     }
 
-    await revokeRefreshToken(refreshToken, req.userId);
+    const userId = req.user?._id || req.userId;
+    if (!userId) {
+      return errorResponse(res, 'User not authenticated', 401);
+    }
+
+    await revokeRefreshToken(refreshToken, userId);
     return successResponse(res, null, MESSAGE.LOGOUT_SUCCESSFUL);
 
   } catch (error) {
@@ -678,7 +686,12 @@ const logout = async (req, res, next) => {
 
 const me = async (req, res, next) => {
   try {
-    const user = await User.findById(req.userId).populate('tenantId');
+    const userId = req.user?._id || req.userId;
+    if (!userId) {
+      return errorResponse(res, 'User not authenticated', 401);
+    }
+
+    const user = await User.findById(userId).populate('tenantId');
     if (!user) return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
     return successResponse(res, { user });
   } catch (error) {
@@ -688,7 +701,12 @@ const me = async (req, res, next) => {
 
 const logoutAll = async (req, res, next) => {
   try {
-    const user = await User.findById(req.userId);
+    const userId = req.user?._id || req.userId;
+    if (!userId) {
+      return errorResponse(res, 'User not authenticated', 401);
+    }
+
+    const user = await User.findById(userId);
     if (!user) return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
 
     user.revokeAllRefreshTokens();
@@ -702,7 +720,12 @@ const logoutAll = async (req, res, next) => {
 
 const getSessions = async (req, res, next) => {
   try {
-    const user = await User.findById(req.userId);
+    const userId = req.user?._id || req.userId;
+    if (!userId) {
+      return errorResponse(res, 'User not authenticated', 401);
+    }
+
+    const user = await User.findById(userId);
     if (!user) return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
 
     const sessions = user.getActiveSessions();
@@ -717,7 +740,12 @@ const revokeSession = async (req, res, next) => {
     const { userAgent } = req.body;
     if (!userAgent) return errorResponse(res, 'User agent required', 400);
 
-    const user = await User.findById(req.userId);
+    const userId = req.user?._id || req.userId;
+    if (!userId) {
+      return errorResponse(res, 'User not authenticated', 401);
+    }
+
+    const user = await User.findById(userId);
     if (!user) return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
 
     user.revokeSessionByAgent(userAgent);

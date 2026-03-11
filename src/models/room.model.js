@@ -16,10 +16,17 @@ const roomSchema = new mongoose.Schema(
       index: true
     },
 
+    // ✅ Unique key for DIRECT/ADMIN_CHAT rooms (sorted participant IDs)
+    participantKey: {
+      type: String,
+      sparse: true,
+      unique: true
+    },
+
     // ✅ Tenant association (for multi-tenant)
-    tenantId: {
+    platformId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Tenant',
+      ref: 'Platform',
       sparse: true,
       index: true
     },
@@ -85,8 +92,7 @@ const roomSchema = new mongoose.Schema(
 
     isArchived: {
       type: Boolean,
-      default: false,
-      index: true
+      default: false
     },
 
     isPinned: {
@@ -123,10 +129,27 @@ const roomSchema = new mongoose.Schema(
 
 // ✅ Indexes for better query performance
 roomSchema.index({ type: 1, 'participants.userId': 1 });
-roomSchema.index({ tenantId: 1, type: 1 });
+roomSchema.index({ platformId: 1, type: 1 });
 roomSchema.index({ lastMessageTime: -1 });
 roomSchema.index({ isArchived: 1 });
 roomSchema.index({ createdAt: -1 });
+
+// ✅ Pre-save hook: Generate participantKey for DIRECT/ADMIN_CHAT rooms
+roomSchema.pre('save', function(next) {
+  if ((this.type === 'DIRECT' || this.type === 'ADMIN_CHAT') && this.participants.length === 2) {
+    const sortedIds = this.participants
+      .map(p => {
+        const userId = p.userId?._id || p.userId;
+        return userId.toString();
+      })
+      .sort()
+      .join('_');
+    this.participantKey = `${this.type}_${sortedIds}`;
+  } else {
+    this.participantKey = undefined;
+  }
+  next();
+});
 
 // ✅ Methods
 

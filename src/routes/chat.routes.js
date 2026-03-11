@@ -1,39 +1,58 @@
 import express from 'express';
 import chatController from '../controller/chat.controller.js';
-import { verifyJWT, requireRole } from '../middlewares/auth.middleware.js';
+import { verifyJWT } from '../middlewares/auth.middleware.js';
 import { API } from '../constants/endpoints.js';
 
 const router = express.Router();
 
+/* =====================================================
+   AUTH MIDDLEWARE
+   ===================================================== */
 router.use(verifyJWT);
 
-// Discovery routes
-router.get(API.CHAT.AVAILABLE_USERS, chatController.getAvailableUsersToChat);
+/* =====================================================
+   1. USER DISCOVERY
+   ===================================================== */
+router.get(
+    '/available-users',
+    chatController.getAvailableUsersToChat
+);
 
-// Room listing
-router.get(API.CHAT.ROOMS, chatController.getAllActiveRooms);
+/* =====================================================
+   2. ROOM LISTING
+   ===================================================== */
+router.get(
+    '/rooms',
+    chatController.getAllActiveRooms
+);
 
-// Room creation
-router.post(API.CHAT.DIRECT, chatController.createDirectRoom);
-router.post('/contact-chat', chatController.createChatFromContact);
-router.post(API.CHAT.ADMIN_CHAT, requireRole('ADMIN', 'TENANT_ADMIN', 'SUPER_ADMIN'), chatController.createAdminChat);
+/* =====================================================
+   3. ROOM CREATION
+   ===================================================== */
+router.post(
+    '/create-or-get-room',
+    chatController.createOrGetRoom
+);
 
-// Message routes
-router.get(API.CHAT.ROOM_MESSAGES, chatController.getRoomMessages);
-router.post('/send-message', chatController.sendMessageWithMedia);
-router.post('/forward-message', chatController.forwardMessage);
-router.get(API.CHAT.SEARCH_MESSAGES, chatController.searchMessages);
+/* =====================================================
+   4. ROOM MESSAGES
+   ===================================================== */
+router.get(
+    '/rooms/:roomId/messages',
+    chatController.getRoomMessages
+);
 
-// Read status
-router.post(API.CHAT.MARK_AS_READ, chatController.markRoomAsRead);
+router.patch(
+    '/rooms/:roomId/mark-as-read',
+    chatController.markRoomAsRead
+);
 
-// Super admin routes
-router.get(API.CHAT.ALL_CHATS, requireRole('SUPER_ADMIN'), chatController.getAllChats);
-router.get(API.CHAT.ADMIN_CHATS_BY_ID, requireRole('SUPER_ADMIN'), chatController.getAdminChatsById);
-
-// Admin member chat monitoring routes
-router.get('/admin/member-chats', requireRole('ADMIN', 'TENANT_ADMIN'), chatController.getAdminMemberChats);
-router.get('/admin/member-chats/:memberId', requireRole('ADMIN', 'TENANT_ADMIN'), chatController.getSpecificMemberChats);
-router.get('/admin/member-chats/:memberId/room/:roomId', requireRole('ADMIN', 'TENANT_ADMIN'), chatController.getMemberChatHistory);
+/* =====================================================
+   5. MESSAGE ACTIONS
+   ===================================================== */
+router.post(
+    '/messages/send',
+    chatController.sendMessageWithMedia
+);
 
 export default router;

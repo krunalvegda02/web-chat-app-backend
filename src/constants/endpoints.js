@@ -67,6 +67,7 @@ const API = {
         // SUPER ADMIN
         ALL_CHATS: "/admin/all-chats",
         ADMIN_CHATS_BY_ID: "/admin/chats/:adminId",
+        USER_ROOMS: "/user/:userId/rooms",
 
         // ADMIN / TENANT_ADMIN (NEW – MEMBER MONITORING)
         ADMIN_MEMBER_CHATS: "/admin/member-chats",

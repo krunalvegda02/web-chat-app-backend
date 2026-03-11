@@ -10,7 +10,7 @@ CREATE TENANT WITH ADMIN (SUPER ADMIN)
 ============================================ */
 const createTenant = async (req, res, next) => {
   try {
-    const { name, email, password = 'Admin@123', phone } = req.body;
+    const { name, email, password = 'Admin@123', phone, platformClientId, platformApiEndpoint, platformApiKey, platformWebhookUrl } = req.body;
 
     if (!name || !email) {
       return errorResponse(res, MESSAGE.REQUIRED_FIELDS, 400);
@@ -31,7 +31,15 @@ const createTenant = async (req, res, next) => {
     // Check if tenant slug already exists
     const existingTenant = await Tenant.findOne({ slug });
     if (existingTenant) {
-      return errorResponse(res, 'Workspace name already exists', 400);
+      return errorResponse(res, 'Platform name already exists', 400);
+    }
+
+    // Check if platformClientId already exists
+    if (platformClientId) {
+      const existingPlatform = await Tenant.findOne({ platformClientId });
+      if (existingPlatform) {
+        return errorResponse(res, 'Platform Client ID already exists', 400);
+      }
     }
 
     // Create admin user
@@ -40,18 +48,22 @@ const createTenant = async (req, res, next) => {
       email,
       password,
       phone: phone || undefined,
-      role: 'ADMIN',
+      role: 'TENANT_ADMIN',
       status: 'ACTIVE',
     });
 
     await adminUser.save();
 
-    // Create tenant with default WhatsApp theme
+    // Create tenant with platform integration
     const tenant = new Tenant({
       name,
       slug,
       adminId: adminUser._id,
       description: `${name} workspace`,
+      platformClientId: platformClientId || undefined,
+      platformApiEndpoint: platformApiEndpoint || undefined,
+      platformApiKey: platformApiKey || undefined,
+      platformWebhookUrl: platformWebhookUrl || undefined,
       theme: {
         appName: name,
         logoUrl: null,
@@ -299,7 +311,7 @@ UPDATE TENANT (SUPER ADMIN ONLY)
 const updateTenant = async (req, res, next) => {
   try {
     const { tenantId } = req.params;
-    const { name, email, phone } = req.body;
+    const { name, email, phone, platformClientId, platformApiEndpoint, platformApiKey, platformWebhookUrl } = req.body;
 
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) {
@@ -319,6 +331,12 @@ const updateTenant = async (req, res, next) => {
         .replace(/[^a-z0-9]/g, '-')
         .replace(/-+/g, '-');
     }
+
+    // Update platform integration fields
+    if (platformClientId !== undefined) tenant.platformClientId = platformClientId || null;
+    if (platformApiEndpoint !== undefined) tenant.platformApiEndpoint = platformApiEndpoint || null;
+    if (platformApiKey !== undefined) tenant.platformApiKey = platformApiKey || null;
+    if (platformWebhookUrl !== undefined) tenant.platformWebhookUrl = platformWebhookUrl || null;
 
     // Update admin user if email or phone changed
     if (email || phone) {

@@ -4,24 +4,18 @@ import {
     getContacts,
     addContact,
     removeContact,
-    searchUsersByContact
+    searchUserByPhoneOrEmail,
+    updateContactName
 } from '../controller/contacts.controller.js';
 
 const router = express.Router();
 
-// All routes require authentication
 router.use(verifyJWT);
 
-// Get user's contacts
-router.get('/', getContacts);
-
-// Search users by phone/email/name
-router.get('/search', searchUsersByContact);
-
-// Add contact
+router.get('/search-user', searchUserByPhoneOrEmail);
 router.post('/', addContact);
-
-// Remove contact
-router.delete('/:userId', removeContact);
+router.get('/', getContacts);
+router.delete('/:contactId', removeContact);
+router.put('/:contactId', updateContactName);
 
 export default router;

@@ -116,12 +116,13 @@ export const uploadOnCloudinary = async (
 
       // Detect file type
       const isVideo = /\.(mp4|mov|webm|avi|quicktime)$/i.test(localFilePath);
-      const isDocument = /\.(pdf|doc|docx)$/i.test(localFilePath);
+      const isAudio = /\.(mp3|wav|ogg|webm|m4a)$/i.test(localFilePath);
+      const isDocument = /\.(pdf|doc|docx|txt|xls|xlsx|ppt|pptx)$/i.test(localFilePath);
 
       // Prepare upload options
       const uploadOptions = {
-        // Resource type - use 'image' for documents (Cloudinary treats PDFs as images)
-        resource_type: isVideo ? 'video' : options.resource_type || 'image',
+        // Resource type - 'raw' for documents, 'video' for video/audio, 'image' for images
+        resource_type: isDocument ? 'raw' : (isVideo || isAudio) ? 'video' : options.resource_type || 'image',
 
         // Folder organization
         folder: options.folder || UPLOAD_CONFIG.CLOUDINARY_FOLDERS.ads_banner,

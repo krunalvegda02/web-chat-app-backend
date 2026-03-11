@@ -3,6 +3,7 @@ import Room from '../models/room.model.js';
 import User from '../models/user.model.js';
 import CallLog from '../models/callLog.model.js';
 import { decodeToken } from '../utils/tokenUtils.js';
+import { sendMessageNotification } from '../controller/notification.controller.js';
 
 
 // ============ CONSTANTS ============
@@ -596,7 +597,22 @@ export const registerChatSocket = (io) => {
           lastMessageTime: new Date(),
         });
 
-        console.log(`💬 [MSG] Message ${message._id} sent in room ${roomId} by ${userId} (${userRole})`);
+        // ✅ Send push notification to offline recipients
+        for (const participant of room.participants) {
+          if (participant.userId && participant.userId._id && participant.userId._id.toString() !== userId.toString()) {
+            const recipientId = participant.userId._id.toString();
+            const isRecipientOnline = userSockets.has(recipientId);
+            
+            if (!isRecipientOnline) {
+              console.log(`📤 [NOTIFICATION] Sending push notification to offline user ${recipientId}`);
+              sendMessageNotification(recipientId, message.senderId, message, roomId);
+            } else {
+              console.log(`⏭️ [NOTIFICATION] Skipping notification - user ${recipientId} is online`);
+            }
+          }
+        }
+
+        console.log(`💬 [MSG] Message ${message._id} sent in room ${roomId} by ${userId} (${userRole})`)
 
       } catch (error) {
         console.error(`❌ [SEND_MESSAGE] Error: ${error.message}`);
@@ -1047,13 +1063,21 @@ export const registerChatSocket = (io) => {
 
         console.log(`📞 [CALL] ${userId} initiating ${callType} call to ${targetUserId}, callId: ${callLog._id}`);
 
-        // Get caller info
-        const caller = await User.findById(userId).select('name avatar');
+        // Get caller info and check if receiver has saved caller as contact
+        const caller = await User.findById(userId).select('name avatar phone');
+        const Contact = (await import('../models/contact.model.js')).default;
+        const receiverContact = await Contact.findOne({ 
+          userId: targetUserId, 
+          contactUserId: userId 
+        }).select('contactName');
+        
+        // Use contact name if saved, otherwise use phone or name
+        const displayName = receiverContact?.contactName || caller?.phone || caller?.name || 'User';
 
         emitToUser(io, targetUserId, 'call_incoming', {
           callId: callLog._id,
           callerId: userId,
-          callerName: caller?.name || 'User',
+          callerName: displayName,
           callerAvatar: caller?.avatar,
           callType,
           roomId,

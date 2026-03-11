@@ -14,9 +14,18 @@ const jwtExpire = process.env.JWT_EXPIRE;
 /**
  * Generate JWT Access Token
  */
-const generateAccessToken = (userId, email, role, tenantId) => {
+const generateAccessToken = (userId, email, role, contextId) => {
+    const payload = { userId, email, role };
+    
+    // Add context based on role
+    if (role === 'PLATFORM_ADMIN') {
+        payload.platformId = contextId || null;
+    } else {
+        payload.tenantId = contextId || null;
+    }
+    
     return jwt.sign(
-        { userId, email, role, tenantId },
+        payload,
         jwtSecret,
         { expiresIn: jwtExpire || '24h' }
     );

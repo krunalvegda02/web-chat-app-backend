@@ -83,7 +83,19 @@ const uploadChatMedia = async (req, res, next) => {
     const uploadedMedia = [];
 
     for (const file of req.files) {
-      console.log('[uploadChatMedia] Processing file:', file.originalname, file.mimetype);
+      console.log('[uploadChatMedia] Processing file:', file.originalname, file.mimetype, 'Size:', file.size);
+      
+      // Check if file is empty
+      if (!file.size || file.size === 0) {
+        console.error('[uploadChatMedia] Empty file detected:', file.originalname);
+        return errorResponse(res, 'Empty file', 400);
+      }
+      
+      // Check if file exists
+      if (!fs.existsSync(file.path)) {
+        console.error('[uploadChatMedia] File not found:', file.path);
+        return errorResponse(res, 'File not found', 400);
+      }
       
       let fileType = file.mimetype.startsWith('image/') ? 'image' 
         : file.mimetype.startsWith('video/') ? 'video'
@@ -132,10 +144,20 @@ const uploadChatMedia = async (req, res, next) => {
           fileType = 'voice';
         }
         
-        // Cloudinary upload - use 'image' resource type for all (PDFs work as images)
+        // Determine resource type for Cloudinary
+        let resourceType = 'image'; // Default for images and PDFs
+        if (fileType === 'video') {
+          resourceType = 'video';
+        } else if (fileType === 'audio' || fileType === 'voice') {
+          resourceType = 'video'; // Audio uses video resource type
+        } else if (file.mimetype === 'application/pdf' || fileType === 'file') {
+          resourceType = 'raw'; // Use raw for PDFs and other documents
+        }
+        
+        // Cloudinary upload
         const result = await uploadOnCloudinary(file.path, {
           folder: `chat/${fileType}s`,
-          resource_type: fileType === 'video' ? 'video' : (fileType === 'audio' || fileType === 'voice') ? 'video' : 'image'
+          resource_type: resourceType
         });
 
         console.log('[uploadChatMedia] Cloudinary result:', result.secure_url);

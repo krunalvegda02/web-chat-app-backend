@@ -8,16 +8,12 @@ const userSchema = new mongoose.Schema({
   },
   email: {
     type: String,
-    required: [true, 'Email is required'],
-    unique: true,
     lowercase: true,
-    match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email'],
+    default: null,
   },
   // ✅ NEW: Phone number field for contact-based chat
   phone: {
     type: String,
-    unique: true,
-    sparse: true, // Allow null values without unique constraint conflict
     trim: true,
     default: null,
   },
@@ -52,13 +48,20 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['USER', 'ADMIN', 'SUPER_ADMIN'],
+    enum: ['USER', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'TENANT_ADMIN'],
     default: 'USER',
+  },
+  platformId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Platform',
+    default: null,
+    sparse: true,
   },
   tenantId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Tenant',
     default: null,
+    sparse: true,
   },
   status: {
     type: String,
@@ -156,9 +159,11 @@ const userSchema = new mongoose.Schema({
 });
 
 // ========== INDEXES ==========
-userSchema.index({ email: 1 });
-userSchema.index({ phone: 1 }); 
+userSchema.index({ email: 1, platformId: 1 }); // Compound index for platform-specific email
+userSchema.index({ phone: 1, platformId: 1 }); // Compound index for platform-specific phone
+userSchema.index({ platformId: 1 });
 userSchema.index({ tenantId: 1 });
+userSchema.index({ role: 1 });
 userSchema.index({ createdAt: -1 });
 userSchema.index({ 'contacts.userId': 1 }); 
 userSchema.index({ 'blockedUsers.userId': 1 }); 

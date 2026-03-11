@@ -93,20 +93,11 @@ const themeSchema = new mongoose.Schema({
   enableTypingIndicator: { type: Boolean, default: null },
 });
 
-
-
-
-
-
-
-
-
-
-
-const tenantSchema = new mongoose.Schema({
+const platformSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: [true, 'Tenant name is required'],
+    required: [true, 'Platform name is required'],
+    trim: true,
   },
   slug: {
     type: String,
@@ -119,84 +110,58 @@ const tenantSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
-  // Platform integration fields
-  platformClientId: {
+  description: {
+    type: String,
+    default: '',
+  },
+  
+  // External Platform Integration
+  externalClientId: {
     type: String,
     unique: true,
     sparse: true,
     trim: true,
   },
-  platformApiEndpoint: {
+  apiEndpoint: {
     type: String,
     trim: true,
   },
-  platformApiKey: {
+  apiKey: {
     type: String,
     trim: true,
   },
-  platformWebhookUrl: {
+  webhookUrl: {
     type: String,
     trim: true,
   },
-  platformMetadata: {
+  integrationMetadata: {
     type: Map,
     of: mongoose.Schema.Types.Mixed,
     default: new Map(),
   },
-  description: {
-    type: String,
-    default: '',
-  },
+  
+  // Theme customization
   theme: {
     type: themeSchema,
     default: () => ({}),
   },
-  members: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
-  ],
-  inviteToken: {
-    token: String,
-    expiresAt: Date,
-  },
+  
   status: {
     type: String,
-    enum: ['ACTIVE', 'INACTIVE'],
+    enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'],
     default: 'ACTIVE',
   },
-
-  inviteToken: {
-    token: String,
-    expiresAt: Date,
-    invitedEmail: String,      // Email of invited person
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    acceptedAt: Date,          // When user accepted
-    acceptedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    }
+  
+  // Subscription/Billing
+  subscriptionPlan: {
+    type: String,
+    enum: ['FREE', 'BASIC', 'PREMIUM', 'ENTERPRISE'],
+    default: 'FREE',
   },
-
-  inviteHistory: [              // Track all invites (optional)
-    {
-      email: String,
-      sentAt: Date,
-      expiresAt: Date,
-      acceptedAt: Date,
-      status: {
-        type: String,
-        enum: ['PENDING', 'ACCEPTED', 'EXPIRED'],
-        default: 'PENDING'
-      }
-    }
-  ],
-
-
+  subscriptionExpiry: {
+    type: Date,
+  },
+  
   createdAt: {
     type: Date,
     default: Date.now,
@@ -207,8 +172,11 @@ const tenantSchema = new mongoose.Schema({
   },
 });
 
-tenantSchema.index({ slug: 1, adminId: 1 });
+platformSchema.index({ slug: 1, adminId: 1 });
+platformSchema.index({ externalClientId: 1 });
+platformSchema.index({ status: 1 });
+platformSchema.index({ createdAt: -1 });
 
-const Tenant = mongoose.model('Tenant', tenantSchema);
+const Platform = mongoose.model('Platform', platformSchema);
 
-export default Tenant;
+export default Platform;

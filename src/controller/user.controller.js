@@ -1,7 +1,29 @@
 import User from "../models/user.model.js";
+import Contact from "../models/contact.model.js";
 import { successResponse, errorResponse } from "../utils/response.js";
 import MESSAGE from "../constants/message.js";
 import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/cloudinary.js";
+
+/* ============================================
+   GET ALL USERS (SUPER ADMIN ONLY)
+============================================ */
+const getAllUsers = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return errorResponse(res, 'Unauthorized', 403);
+    }
+
+    const users = await User.find({
+      _id: { $ne: req.user._id }
+    })
+      .select('-password -refreshTokens')
+      .sort({ createdAt: -1 });
+
+    return successResponse(res, { users });
+  } catch (error) {
+    next(error);
+  }
+};
 
 /* ============================================
    SEARCH USERS BY EMAIL OR PHONE
@@ -46,12 +68,17 @@ const getUserById = async (req, res, next) => {
       return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
     }
 
-    // TODO: Check if user is in contacts, favorites, blocked
-    const isContact = false;
-    const isFavorite = false;
-    const isBlocked = false;
+    // Check if user is in contacts
+    const contact = await Contact.findOne({
+      userId: req.user._id,
+      contactUserId: userId
+    });
 
-    return successResponse(res, { user, isContact, isFavorite, isBlocked });
+    return successResponse(res, { 
+      user, 
+      isContact: !!contact,
+      contact: contact || null
+    });
   } catch (error) {
     next(error);
   }
@@ -144,6 +171,7 @@ const markNotificationAsRead = async (req, res, next) => {
    DEFAULT EXPORT (Optional, for grouped import)
 ============================================ */
 export default {
+  getAllUsers,
   searchUsers,
   getUserById,
   updateProfile,

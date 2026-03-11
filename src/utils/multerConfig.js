@@ -13,11 +13,14 @@ if (!fs.existsSync(uploadDir)) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    console.log('[Multer] Saving file to:', uploadDir);
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    const filename = file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname);
+    console.log('[Multer] Generated filename:', filename);
+    cb(null, filename);
   }
 });
 
@@ -41,10 +44,10 @@ export const uploadImage = multer({
 export const uploadChatMedia = multer({
   storage,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB for videos
+    fileSize: 100 * 1024 * 1024, // 100MB for all media
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|mov|avi|mkv|pdf|doc|docx|txt|zip|rar|webm|mp3|wav|ogg|m4a/;
+    const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|mov|avi|mkv|pdf|doc|docx|txt|zip|rar|webm|mp3|wav|ogg|m4a|xls|xlsx|ppt|pptx/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     
     if (extname) {

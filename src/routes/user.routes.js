@@ -6,6 +6,7 @@ import { upload } from "../middlewares/multer.middleware.js";
 
 const router = express.Router();
 
+router.get('/all', verifyJWT, userController.getAllUsers);
 router.get('/search', verifyJWT, userController.searchUsers);
 router.get(API.USER.BY_ID, verifyJWT, userController.getUserById);
 router.put(API.USER.PROFILE, verifyJWT, upload.single('avatar'), userController.updateProfile);
