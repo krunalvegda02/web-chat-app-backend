@@ -214,14 +214,14 @@ export const registerChatSocket = (io) => {
     } catch (error) {
       console.warn(`❌ [AUTH] Token verification failed: ${error.message}`);
       console.warn(`⚠️ [AUTH] Attempting fallback authentication...`);
-      
+
       // ✅ FALLBACK: Extract userId from token payload without verification
       try {
         const parts = token.split('.');
         if (parts.length === 3) {
           const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
           console.log(`✅ [AUTH] Fallback: Extracted payload for user ${payload.userId}`);
-          
+
           // For platform users, accept the token without full verification
           if (payload.userId && payload.role === 'PLATFORM_ADMIN') {
             console.log(`✅ [AUTH] Fallback: Accepting platform admin token`);
@@ -266,6 +266,44 @@ export const registerChatSocket = (io) => {
       timestamp: new Date(),
     });
 
+    // ========== SYNC DELIVERY RECEIPTS ==========
+    // Find all messages sent to this user that are still 'sent', and mark them 'delivered'
+    const syncDeliveryReceipts = async () => {
+      try {
+        const userRooms = await Room.find({ 'participants.userId': userId }).select('_id');
+        const roomIds = userRooms.map(r => r._id);
+
+        const undeliveredMessages = await Message.find({
+          roomId: { $in: roomIds },
+          senderId: { $ne: userId }, // Was sent by someone else
+          status: 'sent',             // Still sitting at 'sent' (one tick)
+          isDeleted: false
+        });
+
+        if (undeliveredMessages.length > 0) {
+          const messageIds = undeliveredMessages.map(m => m._id);
+          await Message.updateMany(
+            { _id: { $in: messageIds } },
+            { $set: { status: 'delivered' } }
+          );
+
+          // Emit delivery confirmation back to each sender (or to the room)
+          undeliveredMessages.forEach(msg => {
+            emitToRoom(io, msg.roomId, 'message_delivered', {
+              roomId: msg.roomId,
+              messageId: msg._id,
+              status: 'delivered'
+            });
+          });
+          console.log(`📡 [DELIVERY] Synced ${undeliveredMessages.length} pending messages to 'delivered' for User ${userId}`);
+        }
+      } catch (err) {
+        console.error('❌ [DELIVERY] Error syncing offline messages:', err.message);
+      }
+    };
+
+    syncDeliveryReceipts();
+
     // Get rate limiter instance
     const rateLimiter = userRateLimiters.get(userId);
 
@@ -292,7 +330,7 @@ export const registerChatSocket = (io) => {
         if (!readOnlyRoomUsers.has(roomId)) {
           readOnlyRoomUsers.set(roomId, new Set());
         }
-        
+
         if (readOnly) {
           readOnlyRoomUsers.get(roomId).add(userId);
         } else {
@@ -301,10 +339,10 @@ export const registerChatSocket = (io) => {
 
         console.log(`🏠 [ROOM] User ${userId} joined room ${roomId}`);
 
-        const isParticipant = room.participants.some(p => 
+        const isParticipant = room.participants.some(p =>
           p.userId && p.userId.toString() === userId.toString()
         );
-        
+
         if (isParticipant && !readOnly) {
           if (room.unreadCount && room.unreadCount.has(userId.toString())) {
             room.unreadCount.delete(userId.toString());
@@ -345,7 +383,7 @@ export const registerChatSocket = (io) => {
         if (activeUsers) {
           activeUsers.delete(userId);
         }
-        
+
         const readOnlyUsers = readOnlyRoomUsers.get(roomId);
         if (readOnlyUsers) {
           readOnlyUsers.delete(userId);
@@ -400,9 +438,9 @@ export const registerChatSocket = (io) => {
         const recipientIds = room.participants
           .filter(p => p.userId && p.userId._id && p.userId._id.toString() !== userId.toString())
           .map(p => p.userId._id.toString());
-        
+
         const recipientOnline = recipientIds.some(recipientId => userSockets.has(recipientId));
-        
+
         const message = new Message({
           roomId,
           senderId: userId,
@@ -417,17 +455,29 @@ export const registerChatSocket = (io) => {
         room.lastMessageTime = new Date();
 
         const roomActiveUsers = activeRoomUsers.get(roomId) || new Set();
+        const unreadUpdates = [];
         room.participants.forEach(participant => {
           if (participant.userId && participant.userId._id && participant.userId._id.toString() !== userId.toString()) {
             const participantId = participant.userId._id.toString();
             if (!roomActiveUsers.has(participantId)) {
               const currentCount = room.unreadCount.get(participantId) || 0;
-              room.unreadCount.set(participantId, currentCount + 1);
+              const newCount = currentCount + 1;
+              room.unreadCount.set(participantId, newCount);
+              unreadUpdates.push({ userId: participantId, unreadCount: newCount });
             }
           }
         });
 
         await room.save({ validateBeforeSave: false });
+
+        // ✅ Emit unread count updates to recipients
+        unreadUpdates.forEach(update => {
+          emitToUser(io, update.userId, 'unread_count_updated', {
+            roomId,
+            unreadCount: update.unreadCount,
+            timestamp: new Date()
+          });
+        });
 
         const messageData = {
           _id: message._id,
@@ -544,13 +594,13 @@ export const registerChatSocket = (io) => {
         const access = verifyRoomAccess(room, userId, userRole);
         if (!access.valid) return;
 
-        const isParticipant = room.participants.some(p => 
+        const isParticipant = room.participants.some(p =>
           p.userId && p.userId.toString() === userId.toString()
         );
-        
+
         if (!isParticipant) return;
 
-        await Message.updateMany(
+        const result = await Message.updateMany(
           {
             roomId,
             senderId: { $ne: userId },
@@ -568,9 +618,31 @@ export const registerChatSocket = (io) => {
           }
         );
 
+        // Fetch affected message IDs to properly inform the frontend
+        if (result.modifiedCount > 0) {
+          const readMessages = await Message.find({
+            roomId,
+            'readBy.userId': userId,
+            isDeleted: false
+          }).select('_id');
+
+          emitToRoom(io, roomId, 'messages_read', {
+            roomId,
+            messageIds: readMessages.map(m => m._id.toString()),
+            readBy: userId
+          });
+        }
+
         if (room.unreadCount && room.unreadCount.has(userId.toString())) {
           room.unreadCount.delete(userId.toString());
           await room.save();
+
+          // ✅ Emit unread count reset to the user (syncs across tabs)
+          emitToUser(io, userId, 'unread_count_updated', {
+            roomId: room._id.toString(),
+            unreadCount: 0,
+            timestamp: new Date()
+          });
         }
 
       } catch (error) {
@@ -588,10 +660,10 @@ export const registerChatSocket = (io) => {
         const access = verifyRoomAccess(room, userId, userRole);
         if (!access.valid) return;
 
-        const isParticipant = room.participants.some(p => 
+        const isParticipant = room.participants.some(p =>
           p.userId && p.userId.toString() === userId.toString()
         );
-        
+
         if (!isParticipant) return;
 
         await Message.updateMany(
@@ -611,21 +683,84 @@ export const registerChatSocket = (io) => {
           }
         );
 
+        // ✅ EMIT BACK TO ROOM SO SENDER'S UI UPDATES DOUBLE BLUE TICKS
+        emitToRoom(io, roomId, 'messages_read', {
+          roomId,
+          messageIds,
+          readBy: userId
+        });
+
       } catch (error) {
         console.error(`❌ [MARK_MESSAGES_READ] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: Edit Message ==========
+    socket.on('edit_message', async ({ messageId, content }) => {
+      try {
+        if (!rateLimiter.check('edit_message')) return;
+        if (!messageId || !content) return;
+
+        const message = await Message.findById(messageId);
+        if (!message) return;
+
+        const access = verifyMessageOwnership(message, userId);
+        if (!access.valid) return;
+
+        message.content = content.trim();
+        message.isEdited = true;
+        message.editedAt = new Date();
+        await message.save();
+
+        emitToRoom(io, message.roomId, 'message_edited', {
+          roomId: message.roomId,
+          messageId,
+          content: message.content,
+          editedAt: message.editedAt
+        });
+
+      } catch (error) {
+        console.error(`❌ [EDIT_MESSAGE] Error: ${error.message}`);
+      }
+    });
+
+    // ========== EVENT: Delete Message ==========
+    socket.on('delete_message', async ({ messageId }) => {
+      try {
+        if (!rateLimiter.check('delete_message')) return;
+        if (!messageId) return;
+
+        const message = await Message.findById(messageId);
+        if (!message) return;
+
+        const access = verifyMessageOwnership(message, userId);
+        if (!access.valid) return;
+
+        message.isDeleted = true;
+        message.deletedAt = new Date();
+        await message.save();
+
+        emitToRoom(io, message.roomId, 'message_deleted', {
+          roomId: message.roomId,
+          messageId,
+          deletedAt: message.deletedAt
+        });
+
+      } catch (error) {
+        console.error(`❌ [DELETE_MESSAGE] Error: ${error.message}`);
       }
     });
 
     // ========== EVENT: Disconnect ==========
     socket.on('disconnect', () => {
       cleanupUser(io, userId);
-      
+
       broadcastToAll(io, 'user_status_changed', {
         userId,
         status: 'offline',
         timestamp: new Date()
       });
-      
+
       console.log(`🔌 [DISCONNECT] User ${userId} disconnected`);
       console.log(`📊 [STATS] Remaining connections: ${io.of('/chat').sockets.size}`);
     });

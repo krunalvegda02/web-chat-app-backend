@@ -62,7 +62,7 @@ export const generatePlatformApiKey = async (req, res) => {
 export const verifyPlatformApiKey = async (req, res, next) => {
   try {
     const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
-    
+
     if (!apiKey) {
       return errorResponse(res, 'API key is required', 401);
     }
@@ -72,9 +72,9 @@ export const verifyPlatformApiKey = async (req, res, next) => {
     }
 
     const hashedApiKey = hashToken(apiKey);
-    
+
     // Find platform by hashed API key
-    const platform = await Platform.findOne({ 
+    const platform = await Platform.findOne({
       apiKey: hashedApiKey,
       status: 'ACTIVE'
     }).populate('adminId', 'name email');
@@ -86,7 +86,7 @@ export const verifyPlatformApiKey = async (req, res, next) => {
     // Attach platform to request
     req.platform = platform;
     req.platformId = platform._id;
-    
+
     next();
   } catch (error) {
     console.error('API key verification error:', error);
@@ -139,11 +139,11 @@ export const securePlatformChatLogin = async (req, res) => {
       // Check for duplicate email/phone across all platforms
       const duplicateEmail = await User.findOne({ email });
       const duplicatePhone = await User.findOne({ phone: normalizedPhone });
-      
+
       if (duplicateEmail && duplicateEmail.platformId.toString() !== platform._id.toString()) {
         return errorResponse(res, 'Email already registered on another platform', 400);
       }
-      
+
       if (duplicatePhone && duplicatePhone.platformId.toString() !== platform._id.toString()) {
         return errorResponse(res, 'Phone already registered on another platform', 400);
       }
@@ -167,13 +167,13 @@ export const securePlatformChatLogin = async (req, res) => {
       console.log(`✅ [SECURE_LOGIN] Created user ${email} for platform ${platform.name}`);
     } else {
       console.log(`✅ [SECURE_LOGIN] Found existing user ${email} for platform ${platform.name}`);
-      
+
       // Update external user ID if provided
       if (externalUserId && user.externalUserId !== externalUserId) {
         user.externalUserId = externalUserId;
         await user.save();
       }
-      
+
       // Clear old refresh tokens for security
       user.refreshTokens = [];
       await user.save();
@@ -193,9 +193,9 @@ export const securePlatformChatLogin = async (req, res) => {
       return errorResponse(res, 'Platform admin not found', 404);
     }
 
-    // Create room key
+    // Create room key with platform scaling (Matches Room model pre-save hook)
     const sortedParticipants = [user._id.toString(), platformAdmin._id.toString()].sort();
-    const roomKey = `DIRECT_${sortedParticipants.join('_')}`;
+    const roomKey = `DIRECT_PLATFORM_${platform._id}_${sortedParticipants.join('_')}`;
 
     // Check if room exists
     let room = await Room.findOne({ participantKey: roomKey })
@@ -349,7 +349,7 @@ export const getPlatformStats = async (req, res) => {
       User.countDocuments({ platformId: platform._id, role: 'USER' }),
       User.countDocuments({ platformId: platform._id, role: 'USER', status: 'ACTIVE' }),
       Room.countDocuments({ platformId: platform._id }),
-      Room.countDocuments({ 
+      Room.countDocuments({
         platformId: platform._id,
         lastMessageTime: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Active in last 30 days
       })

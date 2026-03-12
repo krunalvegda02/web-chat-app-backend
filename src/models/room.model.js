@@ -135,7 +135,7 @@ roomSchema.index({ isArchived: 1 });
 roomSchema.index({ createdAt: -1 });
 
 // ✅ Pre-save hook: Generate participantKey for DIRECT/ADMIN_CHAT rooms
-roomSchema.pre('save', function(next) {
+roomSchema.pre('save', function (next) {
   if ((this.type === 'DIRECT' || this.type === 'ADMIN_CHAT') && this.participants.length === 2) {
     const sortedIds = this.participants
       .map(p => {
@@ -144,7 +144,13 @@ roomSchema.pre('save', function(next) {
       })
       .sort()
       .join('_');
-    this.participantKey = `${this.type}_${sortedIds}`;
+
+    // Include platformId in the key to ensure uniqueness across platforms
+    if (this.platformId) {
+      this.participantKey = `${this.type}_PLATFORM_${this.platformId}_${sortedIds}`;
+    } else {
+      this.participantKey = `${this.type}_${sortedIds}`;
+    }
   } else {
     this.participantKey = undefined;
   }

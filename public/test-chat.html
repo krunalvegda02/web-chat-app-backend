@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -151,9 +151,12 @@
         }
 
         @keyframes pulse {
-            0%, 100% {
+
+            0%,
+            100% {
                 box-shadow: 0 4px 12px rgba(37, 211, 102, 0.4);
             }
+
             50% {
                 box-shadow: 0 4px 20px rgba(37, 211, 102, 0.8);
             }
@@ -211,6 +214,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
@@ -219,8 +223,8 @@
         </div>
 
         <div class="info-box">
-            <strong>ℹ️ Secure Integration Test:</strong><br>
-            This test uses the secure platform integration API with proper authentication and validation. Your platform will need an API key for production use.
+            <strong>ℹ️ How it works:</strong><br>
+            Each unique phone number gets its own chat room with the platform admin. Try different phone numbers to create different rooms!
         </div>
 
         <form id="testForm">
@@ -231,12 +235,12 @@
 
             <div class="form-group">
                 <label for="email">Email Address *</label>
-                <input type="email" id="email" name="email" placeholder="Enter your email" value="test@example.com" required>
+                <input type="email" id="email" name="email" placeholder="Enter your email" required>
             </div>
 
             <div class="form-group">
-                <label for="phone">Phone Number *</label>
-                <input type="tel" id="phone" name="phone" placeholder="Enter your phone number" value="1234567890" required>
+                <label for="phone">Phone Number * (unique per user)</label>
+                <input type="tel" id="phone" name="phone" placeholder="Enter your phone number" required>
             </div>
 
             <div class="button-group">
@@ -245,17 +249,28 @@
             </div>
 
             <div class="info-box">
-                <strong>💡 Tip:</strong> Use the same email and phone to access the same chat room. Different email/phone = different room.
+                <strong>💡 Test Examples:</strong><br>
+                User 1: Name=Alice, Email=alice@test.com, Phone=<strong>9111111111</strong><br>
+                User 2: Name=Bob, Email=bob@test.com, Phone=<strong>9122222222</strong><br>
+                User 3: Name=Charlie, Email=charlie@test.com, Phone=<strong>9133333333</strong><br>
+                <br>
+                Each phone number = Different room!
             </div>
 
             <div id="status" class="status"></div>
+
+            <div style="margin-top: 15px; text-align: center;">
+                <button type="button" id="randomizeBtn" class="btn-secondary" style="font-size: 12px; padding: 8px;">🎲
+                    Generate Random User</button>
+            </div>
         </form>
     </div>
 
     <!-- WhatsApp Floating Icon -->
     <div class="whatsapp-icon" id="whatsappIcon" title="Click to start chat">
         <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.67-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.076 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421-7.403h-.004c-1.052 0-2.082.398-2.847 1.12-.735.71-1.14 1.656-1.14 2.66 0 1.04.415 2.049 1.144 2.792l.002.002c.832.888 1.959 1.438 3.285 1.438h.005c1.321 0 2.442-.547 3.279-1.43l-.002-.002c.467-.507.826-1.095 1.056-1.72.23-.624.347-1.292.347-1.961 0-1.047-.413-2.053-1.148-2.773-.753-.74-1.787-1.148-2.882-1.148zm5.031-.78c-1.582-1.631-3.779-2.53-6.031-2.53-4.765 0-8.637 3.808-8.637 8.531 0 1.5.392 2.969 1.142 4.285L2.06 22l4.537-1.375c1.289.703 2.739 1.072 4.237 1.072h4.236c4.765 0 8.638-3.808 8.638-8.531 0-2.28-.882-4.411-2.48-6.02z"/>
+            <path
+                d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.67-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.076 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421-7.403h-.004c-1.052 0-2.082.398-2.847 1.12-.735.71-1.14 1.656-1.14 2.66 0 1.04.415 2.049 1.144 2.792l.002.002c.832.888 1.959 1.438 3.285 1.438h.005c1.321 0 2.442-.547 3.279-1.43l-.002-.002c.467-.507.826-1.095 1.056-1.72.23-.624.347-1.292.347-1.961 0-1.047-.413-2.053-1.148-2.773-.753-.74-1.787-1.148-2.882-1.148zm5.031-.78c-1.582-1.631-3.779-2.53-6.031-2.53-4.765 0-8.637 3.808-8.637 8.531 0 1.5.392 2.969 1.142 4.285L2.06 22l4.537-1.375c1.289.703 2.739 1.072 4.237 1.072h4.236c4.765 0 8.638-3.808 8.638-8.531 0-2.28-.882-4.411-2.48-6.02z" />
         </svg>
     </div>
 
@@ -273,7 +288,7 @@
             try {
                 const response = await fetch(`${API_BASE_URL}/platforms/public/list`);
                 const data = await response.json();
-                
+
                 if (data.data && data.data.platforms && data.data.platforms.length > 0) {
                     platformId = data.data.platforms[0]._id;
                     console.log('Platform ID:', platformId);
@@ -319,13 +334,12 @@
                         name,
                         email,
                         phone,
-                        externalUserId: `test_${Date.now()}`, // Optional external user ID
+                        externalUserId: `test_${phone}`, // Use phone as unique identifier
                     })
                 });
 
                 console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers);
-                
+
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error('Response error:', errorText);
@@ -334,48 +348,14 @@
 
                 const data = await response.json();
 
-                if (!response.ok) {
-                    throw new Error(data.message || 'Login failed');
-                }
-
                 console.log('Login successful:', data.data);
                 console.log('Room ID:', data.data.room._id);
-                console.log('Access Token:', data.data.accessToken.substring(0, 20) + '...');
+                console.log('User Phone:', phone);
 
-                showStatus('✓ Login successful! Redirecting to chat...', 'success');
+                showStatus('✅ Login successful! Redirecting to chat...', 'success');
 
-                // ✅ Store auth data in the EXACT format Redux-persist expects
-                const authState = {
-                    user: data.data.user,
-                    loading: false,
-                    error: null,
-                    initialized: true,
-                    token: data.data.accessToken,
-                    refreshToken: data.data.refreshToken,
-                    inviteInfo: null,
-                    inviteLoading: false,
-                    inviteError: null,
-                };
-
-                // ✅ CRITICAL: Store in persist:root format with auth nested inside
-                const persistState = {
-                    auth: JSON.stringify(authState),
-                    _persist: JSON.stringify({
-                        version: -1,
-                        rehydrated: true
-                    })
-                };
-                localStorage.setItem('persist:root', JSON.stringify(persistState));
-                
-                // Also store individual tokens for quick access
-                localStorage.setItem('authToken', data.data.accessToken);
-                localStorage.setItem('refreshToken', data.data.refreshToken);
-                
-                console.log('✅ Auth data stored in localStorage');
-
-                // ✅ Wait longer for Redux-persist to rehydrate, then redirect to chat room
+                // Redirect to chat room with platform parameters
                 setTimeout(() => {
-                    // ✅ For PLATFORM_ADMIN users, redirect directly to the chat room WITH platform parameters
                     const baseUrl = `${PLATFORM_URL}${data.data.redirectUrl}`;
                     const platformParams = new URLSearchParams({
                         apiKey: 'test-api-key',
@@ -383,18 +363,13 @@
                         email: email,
                         phone: phone,
                         autoLogin: 'true',
-                        platform: 'test'
+                        platform: 'test_platform'
                     });
                     const redirectUrl = `${baseUrl}?${platformParams.toString()}`;
-                    console.log('✅ Redirect URL:', redirectUrl);
-                    
-                    // Don't show the URL in status to avoid HTML encoding
-                    showStatus('✅ Redirecting to chat...', 'success');
-                    
-                    setTimeout(() => {
-                        window.location.href = redirectUrl;
-                    }, 1000);
-                }, 2000); // Increased delay to 2 seconds
+                    console.log('✅ Redirecting to:', redirectUrl);
+
+                    window.location.href = redirectUrl;
+                }, 500);
 
             } catch (error) {
                 console.error('Error:', error);
@@ -419,7 +394,7 @@
         function showStatus(message, type) {
             statusDiv.textContent = message;
             statusDiv.className = `status ${type}`;
-            
+
             if (type === 'success' || type === 'error') {
                 setTimeout(() => {
                     statusDiv.className = 'status';
@@ -427,10 +402,24 @@
             }
         }
 
+        // Randomize button handler - generates unique phone numbers
+        document.getElementById('randomizeBtn').addEventListener('click', () => {
+            const names = ['Alice', 'Bob', 'Charlie', 'David', 'Eve', 'Frank', 'Grace', 'Henry'];
+            const randomName = names[Math.floor(Math.random() * names.length)];
+            const randomNum = Math.floor(Math.random() * 9000000000) + 1000000000;
+
+            document.getElementById('name').value = randomName;
+            document.getElementById('email').value = `${randomName.toLowerCase()}${randomNum}@example.com`;
+            document.getElementById('phone').value = `91${randomNum}`;
+
+            showStatus(`✅ Generated: ${randomName} with phone 91${randomNum}`, 'success');
+        });
+
         // Pre-fill form if coming back from platform
         window.addEventListener('load', () => {
             fetchPlatformId();
         });
     </script>
 </body>
+
 </html>

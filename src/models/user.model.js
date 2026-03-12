@@ -148,6 +148,12 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  externalUserId: {
+    type: String,
+    index: true,
+    sparse: true,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -159,14 +165,14 @@ const userSchema = new mongoose.Schema({
 });
 
 // ========== INDEXES ==========
-userSchema.index({ email: 1, platformId: 1 }); // Compound index for platform-specific email
-userSchema.index({ phone: 1, platformId: 1 }); // Compound index for platform-specific phone
+userSchema.index({ email: 1, platformId: 1 }, { unique: true, sparse: true }); // Unique email per platform
+userSchema.index({ phone: 1, platformId: 1 }, { unique: true, sparse: true }); // Unique phone per platform
 userSchema.index({ platformId: 1 });
 userSchema.index({ tenantId: 1 });
 userSchema.index({ role: 1 });
 userSchema.index({ createdAt: -1 });
-userSchema.index({ 'contacts.userId': 1 }); 
-userSchema.index({ 'blockedUsers.userId': 1 }); 
+userSchema.index({ 'contacts.userId': 1 });
+userSchema.index({ 'blockedUsers.userId': 1 });
 
 // ========== MIDDLEWARE ==========
 
@@ -199,7 +205,7 @@ userSchema.pre('save', function (next) {
   }
   next();
 });
-    
+
 
 // ========== METHODS ==========
 
