@@ -529,6 +529,57 @@ export const markRoomAsRead = async (req, res, next) => {
     }
 };
 
+// ✅ DELETE ROOM
+export const deleteRoom = async (req, res, next) => {
+    try {
+        const { roomId } = req.params;
+        const userId = req.user._id;
+        const userRole = req.user.role;
+
+        if (!roomId) {
+            return errorResponse(res, "Room ID is required", 400);
+        }
+
+        const room = await Room.findById(roomId);
+        if (!room) {
+            return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
+        }
+
+        // Check if user is a participant or admin
+        const isParticipant = room.participants.some(
+            p => p.userId && p.userId.toString() === userId.toString()
+        );
+        const isAdmin = ['SUPER_ADMIN', 'PLATFORM_ADMIN'].includes(userRole);
+
+        if (!isParticipant && !isAdmin) {
+            return errorResponse(res, 'Unauthorized to delete this room', 403);
+        }
+
+        // Delete all messages in the room
+        await Message.deleteMany({ roomId });
+
+        // Delete the room
+        await Room.findByIdAndDelete(roomId);
+
+        // Emit socket event to notify participants
+        const io = req.app.get('io');
+        if (io) {
+            room.participants.forEach(participant => {
+                const participantId = participant.userId.toString();
+                io.of('/chat').to(`user:${participantId}`).emit('room_deleted', { roomId });
+                console.log(`📡 [ROOM_DELETED] Emitted to user ${participantId}`);
+            });
+        }
+
+        console.log(`🗑️ [DELETE_ROOM] Room ${roomId} deleted by user ${userId}`);
+        return successResponse(res, null, 'Room deleted successfully');
+
+    } catch (error) {
+        console.error('❌ Error in deleteRoom:', error);
+        next(error);
+    }
+};
+
 export default {
     getAvailableUsersToChat,
     createOrGetRoom,
@@ -537,4 +588,5 @@ export default {
     getRoomMessagesPublic,
     sendMessageWithMedia,
     markRoomAsRead,
+    deleteRoom,
 };
