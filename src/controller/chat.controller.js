@@ -111,7 +111,7 @@ export const createOrGetRoom = async (req, res, next) => {
         const sortedParticipants = [currentUserId.toString(), userId.toString()].sort();
         const directKey = `DIRECT_${sortedParticipants.join('_')}`;
         const adminChatKey = `ADMIN_CHAT_${sortedParticipants.join('_')}`;
-        
+
         const existingRoom = await Room.findOne({
             participantKey: { $in: [directKey, adminChatKey] }
         })
@@ -126,7 +126,7 @@ export const createOrGetRoom = async (req, res, next) => {
         // ✅ Determine room type based on user roles
         const currentUserIsAdmin = ['PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(currentUserRole);
         const otherUserIsAdmin = ['PLATFORM_ADMIN', 'SUPER_ADMIN'].includes(otherUser.role);
-        
+
         const roomType = (currentUserIsAdmin && otherUserIsAdmin) ? 'ADMIN_CHAT' : 'DIRECT';
         const participantKey = roomType === 'ADMIN_CHAT' ? adminChatKey : directKey;
 
@@ -153,7 +153,7 @@ export const createOrGetRoom = async (req, res, next) => {
                 })
                     .populate('participants.userId', 'name email avatar role')
                     .populate('lastMessage');
-                
+
                 return successResponse(res, { room: existingRoom }, 'Room found', 200);
             }
             throw error;
@@ -230,13 +230,13 @@ export const getAllActiveRooms = async (req, res, next) => {
                 const otherParticipant = room.participants.find(p =>
                     p.userId && p.userId._id && p.userId._id.toString() !== userId.toString()
                 );
-                
+
                 if (otherParticipant?.userId?.name) {
                     displayName = otherParticipant.userId.name;
                 } else if (otherParticipant?.userId?.phone) {
                     displayName = otherParticipant.userId.phone;
                 }
-                
+
                 displayPhone = otherParticipant?.userId?.phone || null;
             }
 
@@ -307,13 +307,13 @@ export const getRoomMessagesPublic = async (req, res, next) => {
             const otherParticipant = room.participants.find(p =>
                 p.userId && p.userId._id
             );
-            
+
             if (otherParticipant?.userId?.name) {
                 displayName = otherParticipant.userId.name;
             } else if (otherParticipant?.userId?.phone) {
                 displayName = otherParticipant.userId.phone;
             }
-            
+
             displayPhone = otherParticipant?.userId?.phone || null;
         }
 
@@ -377,13 +377,13 @@ export const getRoomMessages = async (req, res, next) => {
             const otherParticipant = room.participants.find(p =>
                 p.userId && p.userId._id && p.userId._id.toString() !== req.user._id.toString()
             );
-            
+
             if (otherParticipant?.userId?.name) {
                 displayName = otherParticipant.userId.name;
             } else if (otherParticipant?.userId?.phone) {
                 displayName = otherParticipant.userId.phone;
             }
-            
+
             displayPhone = otherParticipant?.userId?.phone || null;
         }
 
@@ -414,7 +414,7 @@ export const getRoomMessages = async (req, res, next) => {
 // ✅ SEND MESSAGE WITH MEDIA
 export const sendMessageWithMedia = async (req, res, next) => {
     try {
-        const { roomId, content, type, media, replyTo } = req.body;
+        const { roomId, content, type, media, replyTo, tempId } = req.body;
 
         if (!roomId || (!content && (!media || media.length === 0))) {
             return errorResponse(res, 'Room ID and content or media is required', 400);
@@ -431,13 +431,29 @@ export const sendMessageWithMedia = async (req, res, next) => {
             return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
         }
 
+        // ✅ Check if recipient is online to set initial status
+        const io = req.app.get('io');
+        let recipientOnline = false;
+
+        if (io) {
+            const otherParticipants = room.participants.filter(p => p.userId.toString() !== req.user._id.toString());
+            for (const p of otherParticipants) {
+                const recipientId = p.userId.toString();
+                const recipientSockets = await io.of('/chat').in(`user:${recipientId}`).fetchSockets();
+                if (recipientSockets.length > 0) {
+                    recipientOnline = true;
+                    break;
+                }
+            }
+        }
+
         const message = new Message({
             roomId,
             senderId: req.user._id,
             content: content || '',
             type: type || 'text',
             media: media || [],
-            status: 'sent',
+            status: recipientOnline ? 'delivered' : 'sent',
             sentAt: new Date(),
             replyTo: replyTo || undefined
         });
@@ -450,8 +466,8 @@ export const sendMessageWithMedia = async (req, res, next) => {
         await room.save();
 
         // Broadcast via socket
-        const io = req.app.get('io');
         if (io) {
+            console.log(`📡 [SEND_MEDIA] Broadcasting message ${message._id} to room ${roomId}`);
             const messageData = {
                 _id: message._id,
                 roomId,
@@ -467,7 +483,8 @@ export const sendMessageWithMedia = async (req, res, next) => {
                     role: message.senderId.role,
                 },
                 createdAt: message.createdAt,
-                status: 'sent',
+                status: message.status,
+                tempId, // ✅ Include tempId for reconciliation
                 readBy: [],
                 reactions: [],
                 isEdited: false,
@@ -476,7 +493,7 @@ export const sendMessageWithMedia = async (req, res, next) => {
             io.of('/chat').to(`room:${roomId}`).emit('message_received', messageData);
         }
 
-        return successResponse(res, { message }, 'Message sent', 201);
+        return successResponse(res, { message: { ...message.toObject(), tempId } }, 'Message sent', 201);
 
     } catch (error) {
         console.error('Error sending message:', error);
@@ -529,7 +546,269 @@ export const markRoomAsRead = async (req, res, next) => {
     }
 };
 
-// ✅ DELETE ROOM
+// ✅ GET ADMIN MEMBER CHATS
+export const getAdminMemberChats = async (req, res, next) => {
+    try {
+        const requestingUserRole = req.user.role;
+        const platformId = req.user.platformId;
+
+        // Only platform admins can access this endpoint
+        if (!['PLATFORM_ADMIN'].includes(requestingUserRole)) {
+            return errorResponse(res, 'Unauthorized access', 403);
+        }
+
+        // Get all users in the same platform
+        const users = await User.find({
+            platformId: platformId,
+            _id: { $ne: req.user._id },
+            status: 'ACTIVE'
+        })
+            .select('_id name email avatar role phone')
+            .lean();
+
+        return successResponse(res, {
+            users: users,
+            count: users.length
+        });
+
+    } catch (error) {
+        console.error('❌ Error in getAdminMemberChats:', error);
+        next(error);
+    }
+};
+
+// ✅ GET SPECIFIC MEMBER CHATS
+export const getSpecificMemberChats = async (req, res, next) => {
+    try {
+        const { memberId } = req.params;
+        const requestingUserRole = req.user.role;
+        const platformId = req.user.platformId;
+
+        // Only platform admins can access this endpoint
+        if (!['PLATFORM_ADMIN'].includes(requestingUserRole)) {
+            return errorResponse(res, 'Unauthorized access', 403);
+        }
+
+        if (!memberId) {
+            return errorResponse(res, "Member ID is required", 400);
+        }
+
+        const targetUser = await User.findOne({
+            _id: memberId,
+            platformId: platformId
+        });
+
+        if (!targetUser) {
+            return errorResponse(res, 'User not found or not in your platform', 404);
+        }
+
+        const rooms = await Room.find({
+            participants: {
+                $elemMatch: { userId: memberId }
+            },
+            platformId: platformId,
+            isArchived: false
+        })
+            .populate('participants.userId', 'name email avatar role phone')
+            .populate('lastMessage')
+            .sort({ lastMessageTime: -1 })
+            .lean();
+
+        const formattedRooms = rooms.map(room => {
+            const otherParticipants = room.participants.filter(p =>
+                p.userId && p.userId._id && p.userId._id.toString() !== memberId.toString()
+            );
+
+            return {
+                _id: room._id,
+                name: room.name,
+                type: room.type,
+                participants: room.participants,
+                otherParticipants: otherParticipants.map(p => p.userId),
+                lastMessage: room.lastMessage,
+                lastMessageTime: room.lastMessageTime,
+                lastMessagePreview: room.lastMessage?.content?.substring(0, 50) || "No messages yet",
+                participantCount: room.participants.length,
+                createdAt: room.createdAt
+            };
+        });
+
+        return successResponse(res, {
+            rooms: formattedRooms,
+            user: {
+                _id: targetUser._id,
+                name: targetUser.name,
+                email: targetUser.email,
+                role: targetUser.role
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in getSpecificMemberChats:', error);
+        next(error);
+    }
+};
+
+// ✅ GET MEMBER CHAT HISTORY
+export const getMemberChatHistory = async (req, res, next) => {
+    try {
+        const { memberId, roomId } = req.params;
+        const requestingUserRole = req.user.role;
+        const platformId = req.user.platformId;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 50;
+        const skip = (page - 1) * limit;
+
+        // Only platform admins can access this endpoint
+        if (!['PLATFORM_ADMIN'].includes(requestingUserRole)) {
+            return errorResponse(res, 'Unauthorized access', 403);
+        }
+
+        const room = await Room.findOne({
+            _id: roomId,
+            platformId: platformId,
+            participants: {
+                $elemMatch: { userId: memberId }
+            }
+        }).populate('participants.userId', 'name email avatar role');
+
+        if (!room) {
+            return errorResponse(res, 'Room not found or access denied', 404);
+        }
+
+        const messages = await Message.find({
+            roomId,
+            isDeleted: false
+        })
+            .populate('senderId', 'name email avatar role')
+            .populate('readBy.userId', 'name')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean();
+
+        const total = await Message.countDocuments({
+            roomId,
+            isDeleted: false
+        });
+
+        return successResponse(res, {
+            roomId,
+            room: {
+                _id: room._id,
+                name: room.name,
+                type: room.type,
+                participants: room.participants
+            },
+            messages: messages,
+            pagination: {
+                page,
+                limit,
+                total,
+                pages: Math.ceil(total / limit),
+                hasMore: page < Math.ceil(total / limit)
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in getMemberChatHistory:', error);
+        next(error);
+    }
+};
+export const getUserRooms = async (req, res, next) => {
+    try {
+        const { userId } = req.params;
+        const requestingUserRole = req.user.role;
+
+        // Only admins can access this endpoint
+        if (!['SUPER_ADMIN', 'PLATFORM_ADMIN'].includes(requestingUserRole)) {
+            return errorResponse(res, 'Unauthorized access', 403);
+        }
+
+        if (!userId) {
+            return errorResponse(res, "User ID is required", 400);
+        }
+
+        const targetUser = await User.findById(userId);
+        if (!targetUser) {
+            return errorResponse(res, 'User not found', 404);
+        }
+
+        const rooms = await Room.find({
+            participants: {
+                $elemMatch: { userId: userId }
+            },
+            isArchived: false
+        })
+            .populate('participants.userId', 'name email avatar role phone')
+            .populate('lastMessage')
+            .sort({ lastMessageTime: -1 })
+            .lean();
+
+        const formattedRooms = await Promise.all(rooms.map(async room => {
+            const otherParticipantIds = room.participants
+                .filter(p => p.userId && p.userId._id.toString() !== userId.toString())
+                .map(p => p.userId._id);
+
+            const unreadCount = await Message.countDocuments({
+                roomId: room._id,
+                senderId: { $in: otherParticipantIds },
+                isDeleted: false,
+                'readBy.userId': { $ne: userId }
+            });
+
+            let displayName = room.name;
+            let displayPhone = null;
+            if (room.type === 'DIRECT' || room.type === 'ADMIN_CHAT') {
+                const otherParticipant = room.participants.find(p =>
+                    p.userId && p.userId._id && p.userId._id.toString() !== userId.toString()
+                );
+
+                if (otherParticipant?.userId?.name) {
+                    displayName = otherParticipant.userId.name;
+                } else if (otherParticipant?.userId?.phone) {
+                    displayName = otherParticipant.userId.phone;
+                }
+
+                displayPhone = otherParticipant?.userId?.phone || null;
+            }
+
+            const otherParticipants = room.participants.filter(p =>
+                p.userId && p.userId._id && p.userId._id.toString() !== userId.toString()
+            );
+
+            return {
+                _id: room._id,
+                name: displayName,
+                displayPhone: displayPhone,
+                type: room.type,
+                participants: room.participants,
+                otherParticipants: otherParticipants.map(p => p.userId),
+                lastMessage: room.lastMessage,
+                lastMessageTime: room.lastMessageTime,
+                lastMessagePreview: room.lastMessage?.content?.substring(0, 50) || "No messages yet",
+                unreadCount: unreadCount,
+                participantCount: room.participants.length,
+                createdAt: room.createdAt,
+                isPinned: room.isPinned || false
+            };
+        }));
+
+        return successResponse(res, {
+            rooms: formattedRooms,
+            user: {
+                _id: targetUser._id,
+                name: targetUser.name,
+                email: targetUser.email,
+                role: targetUser.role
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in getUserRooms:', error);
+        next(error);
+    }
+};
 export const deleteRoom = async (req, res, next) => {
     try {
         const { roomId } = req.params;
@@ -589,4 +868,8 @@ export default {
     sendMessageWithMedia,
     markRoomAsRead,
     deleteRoom,
+    getUserRooms,
+    getAdminMemberChats,
+    getSpecificMemberChats,
+    getMemberChatHistory,
 };

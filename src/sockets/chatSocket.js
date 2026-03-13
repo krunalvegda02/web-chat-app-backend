@@ -68,8 +68,8 @@ const verifyRoomAccess = (room, userId, userRole = null) => {
     return { valid: false, error: 'Room not found' };
   }
 
-  // ✅ SUPER_ADMIN, ADMIN, TENANT_ADMIN have universal access
-  const universalRoles = ['SUPER_ADMIN', 'ADMIN', 'TENANT_ADMIN'];
+  // ✅ SUPER_ADMIN, ADMIN, TENANT_ADMIN, PLATFORM_ADMIN have universal access
+  const universalRoles = ['SUPER_ADMIN', 'ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN'];
   if (userRole && universalRoles.includes(userRole)) {
     console.log(`✅ [ACCESS] ${userRole} has universal room access`);
     return { valid: true };
@@ -116,7 +116,8 @@ const emitToRoom = (io, roomId, event, data) => {
  * Emit event to specific user
  */
 const emitToUser = (io, userId, event, data) => {
-  const room = `user:${userId}`;
+  const userIdStr = userId.toString ? userId.toString() : userId;
+  const room = `user:${userIdStr}`;
   io.of('/chat').to(room).emit(event, data);
   console.log(`📤 [EMIT_TO_USER] Event: ${event}, User: ${userId}, Room: ${room}`);
 };
@@ -241,7 +242,7 @@ export const registerChatSocket = (io) => {
     }
 
     // ========== SETUP USER SESSION ==========
-    const userId = decoded.userId;
+    const userId = decoded.userId.toString ? decoded.userId.toString() : decoded.userId;
     const userRole = decoded.role;
     userSockets.set(userId, socket.id);
     userRateLimiters.set(userId, new RateLimiter(userId));
@@ -410,7 +411,7 @@ export const registerChatSocket = (io) => {
     });
 
     // ========== EVENT: Send Message ==========
-    socket.on('send_message', async ({ roomId, content }) => {
+    socket.on('send_message', async ({ roomId, content, tempId }) => {
       try {
         if (!rateLimiter.check('send_message')) {
           return socket.emit('error', { message: 'Too many messages, please slow down' });
@@ -439,7 +440,11 @@ export const registerChatSocket = (io) => {
           .filter(p => p.userId && p.userId._id && p.userId._id.toString() !== userId.toString())
           .map(p => p.userId._id.toString());
 
+        const onlineSocketUsers = Array.from(userSockets.keys());
+        console.log(`🔍 [SEND_MESSAGE] Recipients: ${recipientIds.join(', ')} | Online Users: ${onlineSocketUsers.join(', ')}`);
+
         const recipientOnline = recipientIds.some(recipientId => userSockets.has(recipientId));
+        console.log(`📡 [SEND_MESSAGE] Recipient online status: ${recipientOnline}`);
 
         const message = new Message({
           roomId,
@@ -449,6 +454,15 @@ export const registerChatSocket = (io) => {
         });
 
         await message.save();
+
+        // ✅ Emit IMMEDIATE confirmation back to sender with tempId mapping
+        socket.emit('message_sent', {
+          tempId,
+          messageId: message._id,
+          status: message.status,
+          roomId
+        });
+
         await message.populate('senderId', 'name email avatar role');
 
         room.lastMessage = message._id;
@@ -492,7 +506,8 @@ export const registerChatSocket = (io) => {
             role: message.senderId.role,
           },
           createdAt: message.createdAt,
-          status: recipientOnline ? 'delivered' : 'sent',
+          status: message.status, // Use the status we set (delivered or sent)
+          tempId,
           readBy: [],
           reactions: [],
           isEdited: false,
@@ -500,16 +515,21 @@ export const registerChatSocket = (io) => {
           optimistic: false,
         };
 
+        // Emit to the room (all participants currently in the room)
         emitToRoom(io, roomId, 'message_received', messageData);
 
+        // Also emit directly to ALL participants regardless of whether they are "in" the specific room room
         room.participants.forEach(participant => {
           if (participant.userId && participant.userId._id) {
             const participantId = participant.userId._id.toString();
-            emitToUser(io, participantId, 'message_received', messageData);
+            if (participantId !== userId.toString()) {
+              emitToUser(io, participantId, 'message_received', messageData);
+              console.log(`📤 [SEND_MESSAGE] Also direct emitted to user ${participantId}`);
+            }
           }
         });
 
-        console.log(`💬 [MSG] Message sent in room ${roomId} by ${userId}`);
+        console.log(`💬 [MSG] Message sent in room ${roomId} by ${userId} (status: ${message.status})`);
 
       } catch (error) {
         console.error(`❌ [SEND_MESSAGE] Error: ${error.message}`);
@@ -626,10 +646,26 @@ export const registerChatSocket = (io) => {
             isDeleted: false
           }).select('_id');
 
+          const messageIds = readMessages.map(m => m._id.toString());
+          
+          // Emit to room
           emitToRoom(io, roomId, 'messages_read', {
             roomId,
-            messageIds: readMessages.map(m => m._id.toString()),
+            messageIds,
             readBy: userId
+          });
+          
+          // Also emit directly to all room participants
+          room.participants.forEach(participant => {
+            if (participant.userId && participant.userId.toString() !== userId.toString()) {
+              const participantId = participant.userId.toString();
+              emitToUser(io, participantId, 'messages_read', {
+                roomId,
+                messageIds,
+                readBy: userId
+              });
+              console.log(`📤 [MARK_ROOM_READ] Direct emit to user ${participantId}`);
+            }
           });
         }
 
@@ -652,6 +688,7 @@ export const registerChatSocket = (io) => {
 
     // ========== EVENT: Mark Messages as Read ==========
     socket.on('mark_messages_read', async ({ roomId, messageIds }) => {
+      console.log(`📖 [SOCKET] mark_messages_read RECEIVED:`, { roomId, messageIds, userId });
       try {
         if (!rateLimiter.check('mark_read')) return;
         if (!roomId || !messageIds || messageIds.length === 0) return;
@@ -666,11 +703,13 @@ export const registerChatSocket = (io) => {
 
         if (!isParticipant) return;
 
-        await Message.updateMany(
+        // Only update messages that are not already read by this user
+        const result = await Message.updateMany(
           {
             _id: { $in: messageIds },
-            senderId: { $ne: userId },
-            'readBy.userId': { $ne: userId }
+            senderId: { $ne: userId }, // Don't mark own messages as read
+            'readBy.userId': { $ne: userId }, // Only if not already read by this user
+            isDeleted: false
           },
           {
             $push: {
@@ -683,12 +722,43 @@ export const registerChatSocket = (io) => {
           }
         );
 
-        // ✅ EMIT BACK TO ROOM SO SENDER'S UI UPDATES DOUBLE BLUE TICKS
-        emitToRoom(io, roomId, 'messages_read', {
-          roomId,
-          messageIds,
-          readBy: userId
-        });
+        console.log(`📖 [SOCKET] Updated ${result.modifiedCount} messages to read status`);
+        
+        // Only emit if messages were actually updated
+        if (result.modifiedCount > 0) {
+          // Get the actual message IDs that were updated
+          const updatedMessages = await Message.find({
+            _id: { $in: messageIds },
+            'readBy.userId': userId,
+            isDeleted: false
+          }).select('_id');
+          
+          const updatedMessageIds = updatedMessages.map(m => m._id.toString());
+          
+          console.log(`📡 [SOCKET] Broadcasting messages_read to room ${roomId} for ${updatedMessageIds.length} actually updated messages`);
+          
+          // Emit to room participants
+          emitToRoom(io, roomId, 'messages_read', {
+            roomId,
+            messageIds: updatedMessageIds,
+            readBy: userId
+          });
+          
+          // Also emit directly to all room participants to ensure delivery
+          room.participants.forEach(participant => {
+            if (participant.userId && participant.userId._id) {
+              const participantId = participant.userId._id.toString();
+              emitToUser(io, participantId, 'messages_read', {
+                roomId,
+                messageIds: updatedMessageIds,
+                readBy: userId
+              });
+              console.log(`📤 [SOCKET] Direct emit messages_read to user ${participantId}`);
+            }
+          });
+        } else {
+          console.log(`⏭️ [SOCKET] No messages were updated - all were already read or invalid`);
+        }
 
       } catch (error) {
         console.error(`❌ [MARK_MESSAGES_READ] Error: ${error.message}`);

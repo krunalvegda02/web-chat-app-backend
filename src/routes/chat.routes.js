@@ -71,7 +71,30 @@ router.delete(
 );
 
 /* =====================================================
-   5. MESSAGE ACTIONS
+   6. ADMIN MONITORING ROUTES
+   ===================================================== */
+router.get(
+    '/user/:userId/rooms',
+    chatController.getUserRooms
+);
+
+router.get(
+    '/admin/member-chats',
+    chatController.getAdminMemberChats
+);
+
+router.get(
+    '/admin/member-chats/:memberId',
+    chatController.getSpecificMemberChats
+);
+
+router.get(
+    '/admin/member-chats/:memberId/room/:roomId',
+    chatController.getMemberChatHistory
+);
+
+/* =====================================================
+   7. MESSAGE ACTIONS
    ===================================================== */
 router.post(
     '/messages/send',
