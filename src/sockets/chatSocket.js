@@ -512,7 +512,8 @@ export const registerChatSocket = (io) => {
             avatar: message.senderId.avatar,
             role: message.senderId.role,
           },
-          createdAt: message.createdAt,
+          createdAt: message.createdAt || new Date(),
+          sentAt: message.sentAt || new Date(),
           status: message.status, // Use the status we set (delivered or sent)
           tempId,
           readBy: [],

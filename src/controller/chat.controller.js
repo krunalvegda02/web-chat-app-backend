@@ -495,12 +495,14 @@ export const sendMessageWithMedia = async (req, res, next) => {
                     avatar: message.senderId.avatar,
                     role: message.senderId.role,
                 },
-                createdAt: message.createdAt,
+                createdAt: message.createdAt || new Date(),
+                sentAt: message.sentAt || new Date(),
                 status: message.status,
                 tempId,
                 readBy: [],
                 reactions: [],
                 isEdited: false,
+                deletedAt: null,
                 optimistic: false,
             };
 
