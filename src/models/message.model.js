@@ -9,7 +9,7 @@ const messageSchema = new mongoose.Schema(
       required: true,
       index: true
     },
-    
+
     senderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -129,7 +129,36 @@ const messageSchema = new mongoose.Schema(
           ref: 'User'
         }
       }
-    ]
+    ],
+
+    // ✅ Translation support (USER → PLATFORM_ADMIN)
+    translation: {
+      originalLanguage: {
+        type: String,
+        default: null
+      },
+      translatedContent: {
+        type: String,
+        default: null
+      },
+      translatedAudioUrl: {
+        type: String,
+        default: null
+      },
+      transcription: {
+        type: String,
+        default: null
+      },
+      translatedTranscription: {
+        type: String,
+        default: null
+      },
+      isTranslated: {
+        type: Boolean,
+        default: false
+      }
+    }
+
   },
   {
     timestamps: true,
@@ -144,12 +173,12 @@ messageSchema.index({ senderId: 1 });
 messageSchema.index({ roomId: 1, isDeleted: 1 });
 
 // ✅ Virtual for checking if user has read
-messageSchema.virtual('isRead').get(function() {
+messageSchema.virtual('isRead').get(function () {
   return this.readBy && this.readBy.length > 0;
 });
 
 // ✅ Method to mark as delivered
-messageSchema.methods.markAsDelivered = function() {
+messageSchema.methods.markAsDelivered = function () {
   if (this.status === 'sending') {
     this.status = 'delivered';
     this.deliveredAt = new Date();
@@ -158,7 +187,7 @@ messageSchema.methods.markAsDelivered = function() {
 };
 
 // ✅ Method to mark as read by user
-messageSchema.methods.markAsReadBy = function(userId) {
+messageSchema.methods.markAsReadBy = function (userId) {
   const alreadyRead = this.readBy.some(r => r.userId.toString() === userId.toString());
   if (!alreadyRead) {
     this.readBy.push({
@@ -172,7 +201,7 @@ messageSchema.methods.markAsReadBy = function(userId) {
 };
 
 // ✅ Method to soft delete message
-messageSchema.methods.softDelete = function(userId) {
+messageSchema.methods.softDelete = function (userId) {
   this.isDeleted = true;
   this.deletedAt = new Date();
   this.deletedBy = userId;
@@ -180,7 +209,7 @@ messageSchema.methods.softDelete = function(userId) {
 };
 
 // ✅ Query middleware to exclude deleted messages by default
-messageSchema.query.active = function() {
+messageSchema.query.active = function () {
   return this.where({ isDeleted: false });
 };
 

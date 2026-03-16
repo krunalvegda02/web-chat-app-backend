@@ -5,6 +5,7 @@ import Platform from "../models/platform.model.js";
 import Contact from "../models/contact.model.js";
 import MESSAGE from "../constants/message.js";
 import { successResponse, errorResponse } from "../utils/response.js";
+import { translateText, translateVoiceMessage } from '../services/translationService.js';
 
 // ✅ GET AVAILABLE USERS TO CHAT WITH
 export const getAvailableUsersToChat = async (req, res, next) => {
@@ -491,6 +492,98 @@ export const sendMessageWithMedia = async (req, res, next) => {
                 optimistic: false,
             };
             io.of('/chat').to(`room:${roomId}`).emit('message_received', messageData);
+        }
+
+        // ✅ ASYNC TRANSLATION: Fire-and-forget (runs after response is sent)
+        // Broadened role check to allow testing by admins as well
+        const isUserOrAdmin = ['USER', 'PLATFORM_ADMIN'].includes(req.user.role);
+
+        if (isUserOrAdmin && io) {
+            const msgId = message._id;
+            const msgRoomId = roomId;
+            const msgType = message.type;
+            const msgContent = message.content;
+            const msgMedia = message.media;
+            const roomParticipants = room.participants;
+
+            process.nextTick(async () => {
+                console.log(`🌐 [TRANSLATE] background task started for message: ${msgId} (type: ${msgType})`);
+                try {
+                    const translationUpdate = {};
+                    let hasTranslation = false;
+
+                    // 1. Voice/audio → full pipeline (Whisper + Translate + TTS)
+                    if ((msgType === 'voice' || msgType === 'audio') && msgMedia?.length > 0) {
+                        const audioUrl = msgMedia[0].url;
+                        console.log(`🎙️ [TRANSLATE] Starting voice pipeline for messageId: ${msgId}`);
+                        const voiceResult = await translateVoiceMessage(audioUrl);
+
+                        if (voiceResult) {
+                            translationUpdate['translation.transcription'] = voiceResult.transcription;
+                            translationUpdate['translation.originalLanguage'] = voiceResult.originalLanguage;
+                            translationUpdate['translation.translatedTranscription'] = voiceResult.translatedTranscription;
+                            translationUpdate['translation.translatedAudioUrl'] = voiceResult.translatedAudioUrl;
+                            translationUpdate['translation.isTranslated'] = voiceResult.isTranslated;
+
+                            // Important: Use the translated text for the message bubble too
+                            translationUpdate['translation.translatedContent'] = voiceResult.translatedTranscription || voiceResult.transcription;
+
+                            hasTranslation = true;
+                            console.log(`✅ [TRANSLATE] Voice pipeline success for ${msgId}`);
+                        }
+                    }
+
+                    // 2. Text content → translate (captions/text)
+                    // SKIP translation if it's just a generic placeholder like "Voice message" or if voice pipeline already handled it
+                    const normalizedContent = msgContent?.trim().toLowerCase();
+                    const isGenericPlaceholder = [
+                        'voice message', 'image', 'video', 'file', 'audio',
+                        'sent a voice message', 'sent an image', 'sent a video'
+                    ].includes(normalizedContent);
+
+                    if (msgContent && msgContent.trim().length > 0 && !isGenericPlaceholder && !hasTranslation) {
+                        console.log(`📝 [TRANSLATE] Starting text translation for: "${msgContent.substring(0, 30)}..."`);
+                        const textResult = await translateText(msgContent.trim());
+                        if (textResult && !textResult.skipped) {
+                            translationUpdate['translation.translatedContent'] = textResult.translatedText;
+                            translationUpdate['translation.originalLanguage'] = translationUpdate['translation.originalLanguage'] || textResult.detectedLanguage;
+                            translationUpdate['translation.isTranslated'] = true;
+                            hasTranslation = true;
+                        }
+                    } else if (isGenericPlaceholder) {
+                        console.log(`ℹ️ [TRANSLATE] Skipping generic placeholder text: "${msgContent}"`);
+                    }
+
+                    if (hasTranslation) {
+                        await Message.findByIdAndUpdate(msgId, translationUpdate);
+
+                        // Emit translation event
+                        const translationData = {
+                            messageId: msgId.toString(),
+                            roomId: msgRoomId,
+                            translation: {
+                                originalLanguage: translationUpdate['translation.originalLanguage'] || 'auto',
+                                translatedContent: translationUpdate['translation.translatedContent'] || null,
+                                translatedAudioUrl: translationUpdate['translation.translatedAudioUrl'] || null,
+                                transcription: translationUpdate['translation.transcription'] || null,
+                                translatedTranscription: translationUpdate['translation.translatedTranscription'] || null,
+                                isTranslated: true,
+                            },
+                        };
+
+                        io.of('/chat').to(`room:${msgRoomId}`).emit('message_translated', translationData);
+                        roomParticipants.forEach(p => {
+                            if (p.userId) {
+                                const pid = p.userId.toString();
+                                io.of('/chat').to(`user:${pid}`).emit('message_translated', translationData);
+                            }
+                        });
+                        console.log(`🌐 [TRANSLATE] Translation processed for message ${msgId}`);
+                    }
+                } catch (translationError) {
+                    console.error(`⚠️ [TRANSLATE] Translation error for ${msgId}:`, translationError.message);
+                }
+            });
         }
 
         return successResponse(res, { message: { ...message.toObject(), tempId } }, 'Message sent', 201);

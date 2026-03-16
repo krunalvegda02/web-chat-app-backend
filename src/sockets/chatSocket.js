@@ -4,6 +4,7 @@ import User from '../models/user.model.js';
 import CallLog from '../models/callLog.model.js';
 import { decodeToken } from '../utils/tokenUtils.js';
 import { sendMessageNotification } from '../controller/notification.controller.js';
+import { translateText } from '../services/translationService.js';
 
 
 // ============ CONSTANTS ============
@@ -531,6 +532,43 @@ export const registerChatSocket = (io) => {
 
         console.log(`💬 [MSG] Message sent in room ${roomId} by ${userId} (status: ${message.status})`);
 
+        // ✅ ASYNC TRANSLATION: Non-blocking translation for USER → PLATFORM_ADMIN
+        if (userRole === 'USER') {
+          (async () => {
+            try {
+              const translationResult = await translateText(content.trim());
+              if (translationResult && !translationResult.skipped) {
+                // Update message in DB with translation
+                await Message.findByIdAndUpdate(message._id, {
+                  'translation.originalLanguage': translationResult.detectedLanguage,
+                  'translation.translatedContent': translationResult.translatedText,
+                  'translation.isTranslated': true,
+                });
+
+                // Emit translation event to room
+                const translationData = {
+                  messageId: message._id.toString(),
+                  roomId,
+                  translation: {
+                    originalLanguage: translationResult.detectedLanguage,
+                    translatedContent: translationResult.translatedText,
+                    isTranslated: true,
+                  },
+                };
+                emitToRoom(io, roomId, 'message_translated', translationData);
+                room.participants.forEach(participant => {
+                  if (participant.userId && participant.userId._id) {
+                    emitToUser(io, participant.userId._id.toString(), 'message_translated', translationData);
+                  }
+                });
+                console.log(`🌐 [TRANSLATE] Text translation complete for message ${message._id}`);
+              }
+            } catch (translationError) {
+              console.error(`⚠️ [TRANSLATE] Non-critical translation error:`, translationError.message);
+            }
+          })();
+        }
+
       } catch (error) {
         console.error(`❌ [SEND_MESSAGE] Error: ${error.message}`);
         socket.emit('error', { message: 'Failed to send message' });
@@ -647,14 +685,14 @@ export const registerChatSocket = (io) => {
           }).select('_id');
 
           const messageIds = readMessages.map(m => m._id.toString());
-          
+
           // Emit to room
           emitToRoom(io, roomId, 'messages_read', {
             roomId,
             messageIds,
             readBy: userId
           });
-          
+
           // Also emit directly to all room participants
           room.participants.forEach(participant => {
             if (participant.userId && participant.userId.toString() !== userId.toString()) {
@@ -723,7 +761,7 @@ export const registerChatSocket = (io) => {
         );
 
         console.log(`📖 [SOCKET] Updated ${result.modifiedCount} messages to read status`);
-        
+
         // Only emit if messages were actually updated
         if (result.modifiedCount > 0) {
           // Get the actual message IDs that were updated
@@ -732,18 +770,18 @@ export const registerChatSocket = (io) => {
             'readBy.userId': userId,
             isDeleted: false
           }).select('_id');
-          
+
           const updatedMessageIds = updatedMessages.map(m => m._id.toString());
-          
+
           console.log(`📡 [SOCKET] Broadcasting messages_read to room ${roomId} for ${updatedMessageIds.length} actually updated messages`);
-          
+
           // Emit to room participants
           emitToRoom(io, roomId, 'messages_read', {
             roomId,
             messageIds: updatedMessageIds,
             readBy: userId
           });
-          
+
           // Also emit directly to all room participants to ensure delivery
           room.participants.forEach(participant => {
             if (participant.userId && participant.userId._id) {
