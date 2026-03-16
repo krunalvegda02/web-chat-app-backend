@@ -466,7 +466,19 @@ export const sendMessageWithMedia = async (req, res, next) => {
         room.lastMessageTime = new Date();
         await room.save();
 
-        // Broadcast via socket
+        // ✅ Emit IMMEDIATE confirmation back to sender for API-sent messages
+        if (io) {
+            const confirmationData = {
+                tempId,
+                messageId: message._id,
+                status: message.status,
+                roomId
+            };
+            io.of('/chat').to(`user:${req.user._id}`).emit('message_sent', confirmationData);
+            console.log(`📡 [SEND_MEDIA] Confirmation sent to user ${req.user._id} for tempId ${tempId}`);
+        }
+
+        // Broadcast via socket - Both to room and to individual users
         if (io) {
             console.log(`📡 [SEND_MEDIA] Broadcasting message ${message._id} to room ${roomId}`);
             const messageData = {
@@ -485,13 +497,24 @@ export const sendMessageWithMedia = async (req, res, next) => {
                 },
                 createdAt: message.createdAt,
                 status: message.status,
-                tempId, // ✅ Include tempId for reconciliation
+                tempId,
                 readBy: [],
                 reactions: [],
                 isEdited: false,
                 optimistic: false,
             };
+
+            // Emit to room (for active viewers)
             io.of('/chat').to(`room:${roomId}`).emit('message_received', messageData);
+
+            // Also emit to individual users (for notifications and background updates)
+            room.participants.forEach(p => {
+                const participantId = p.userId.toString();
+                if (participantId !== req.user._id.toString()) {
+                    io.of('/chat').to(`user:${participantId}`).emit('message_received', messageData);
+                    console.log(`📤 [SEND_MEDIA] Direct emit to user ${participantId}`);
+                }
+            });
         }
 
         // ✅ ASYNC TRANSLATION: Fire-and-forget (runs after response is sent)
@@ -615,6 +638,7 @@ export const markRoomAsRead = async (req, res, next) => {
             await room.save();
         }
 
+        // 1. Update the messages in the database
         await Message.updateMany(
             {
                 roomId,
@@ -630,6 +654,37 @@ export const markRoomAsRead = async (req, res, next) => {
                 }
             }
         );
+
+        // 2. Find the messages we just updated to notify senders in real-time
+        const updatedMessages = await Message.find({
+            roomId,
+            senderId: { $ne: req.user._id },
+            'readBy.userId': req.user._id
+        }).select('_id senderId');
+
+        if (updatedMessages.length > 0) {
+            const updatedMessageIds = updatedMessages.map(m => m._id);
+            const io = req.app.get('io');
+
+            if (io) {
+                const readReceiptData = {
+                    roomId,
+                    messageIds: updatedMessageIds,
+                    readBy: req.user._id
+                };
+
+                // Notify room
+                io.of('/chat').to(`room:${roomId}`).emit('messages_read', readReceiptData);
+
+                // Notify individual senders
+                const uniqueSenders = [...new Set(updatedMessages.map(m => m.senderId.toString()))];
+                uniqueSenders.forEach(senderId => {
+                    io.of('/chat').to(`user:${senderId}`).emit('messages_read', readReceiptData);
+                });
+
+                console.log(`📡 [MARK_READ] Notified ${uniqueSenders.length} senders about ${updatedMessageIds.length} read messages`);
+            }
+        }
 
         return successResponse(res, null, "Room marked as read");
 

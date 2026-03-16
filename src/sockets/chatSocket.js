@@ -289,13 +289,15 @@ export const registerChatSocket = (io) => {
             { $set: { status: 'delivered' } }
           );
 
-          // Emit delivery confirmation back to each sender (or to the room)
+          // Emit delivery confirmation back to each sender
           undeliveredMessages.forEach(msg => {
-            emitToRoom(io, msg.roomId, 'message_delivered', {
+            const deliveryData = {
               roomId: msg.roomId,
               messageId: msg._id,
               status: 'delivered'
-            });
+            };
+            emitToRoom(io, msg.roomId, 'message_delivered', deliveryData);
+            emitToUser(io, msg.senderId.toString(), 'message_delivered', deliveryData);
           });
           console.log(`📡 [DELIVERY] Synced ${undeliveredMessages.length} pending messages to 'delivered' for User ${userId}`);
         }
@@ -412,21 +414,21 @@ export const registerChatSocket = (io) => {
     });
 
     // ========== EVENT: Send Message ==========
-    socket.on('send_message', async ({ roomId, content, tempId }) => {
+    socket.on('send_message', async ({ roomId, content, type, media, tempId }) => {
       try {
         if (!rateLimiter.check('send_message')) {
           return socket.emit('error', { message: 'Too many messages, please slow down' });
         }
 
-        if (!roomId || !content) {
-          return socket.emit('error', { message: 'Room ID and content required' });
+        if (!roomId || (!content && (!media || media.length === 0))) {
+          return socket.emit('error', { message: 'Room ID and content or media required' });
         }
 
-        if (typeof content !== 'string' || content.trim().length === 0) {
-          return socket.emit('error', { message: 'Message cannot be empty' });
+        if (content && typeof content !== 'string') {
+          return socket.emit('error', { message: 'Invalid content format' });
         }
 
-        if (content.trim().length > 5000) {
+        if (content && content.trim().length > 5000) {
           return socket.emit('error', { message: 'Message is too long (max 5000 characters)' });
         }
 
@@ -450,7 +452,9 @@ export const registerChatSocket = (io) => {
         const message = new Message({
           roomId,
           senderId: userId,
-          content: content.trim(),
+          content: content ? content.trim() : '',
+          type: type || (media && media.length > 0 ? (media[0].type || 'image') : 'text'),
+          media: media || [],
           status: recipientOnline ? 'delivered' : 'sent',
         });
 
@@ -498,6 +502,8 @@ export const registerChatSocket = (io) => {
           _id: message._id,
           roomId,
           content: message.content,
+          type: message.type,
+          media: message.media,
           senderId: message.senderId._id,
           sender: {
             _id: message.senderId._id,
@@ -776,22 +782,28 @@ export const registerChatSocket = (io) => {
           console.log(`📡 [SOCKET] Broadcasting messages_read to room ${roomId} for ${updatedMessageIds.length} actually updated messages`);
 
           // Emit to room participants
-          emitToRoom(io, roomId, 'messages_read', {
+          const readReceiptData = {
             roomId,
             messageIds: updatedMessageIds,
             readBy: userId
+          };
+          emitToRoom(io, roomId, 'messages_read', readReceiptData);
+
+          // Find the sender of these messages and notify them directly
+          const updatedMsgs = await Message.find({ _id: { $in: updatedMessageIds } }).select('senderId');
+          const uniqueSenders = [...new Set(updatedMsgs.map(m => m.senderId.toString()))];
+
+          uniqueSenders.forEach(senderId => {
+            emitToUser(io, senderId, 'messages_read', readReceiptData);
           });
 
-          // Also emit directly to all room participants to ensure delivery
+          // Also emit to all room participants to ensure delivery for multi-device sync
           room.participants.forEach(participant => {
             if (participant.userId && participant.userId._id) {
               const participantId = participant.userId._id.toString();
-              emitToUser(io, participantId, 'messages_read', {
-                roomId,
-                messageIds: updatedMessageIds,
-                readBy: userId
-              });
-              console.log(`📤 [SOCKET] Direct emit messages_read to user ${participantId}`);
+              if (!uniqueSenders.includes(participantId)) {
+                emitToUser(io, participantId, 'messages_read', readReceiptData);
+              }
             }
           });
         } else {
