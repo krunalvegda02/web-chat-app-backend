@@ -171,21 +171,55 @@ export const securePlatformChatLogin = async (req, res) => {
       // Update external user ID if provided
       if (externalUserId && user.externalUserId !== externalUserId) {
         user.externalUserId = externalUserId;
-        await user.save();
       }
 
-      // Clear old refresh tokens for security
-      user.refreshTokens = [];
-      await user.save();
+      // Clear old refresh tokens for security using atomic operation
+      try {
+        await User.findByIdAndUpdate(
+          user._id,
+          { 
+            $set: { 
+              refreshTokens: [],
+              ...(externalUserId && user.externalUserId !== externalUserId ? { externalUserId } : {})
+            }
+          },
+          { new: true }
+        );
+        // Refresh user object after update
+        user = await User.findById(user._id);
+      } catch (updateError) {
+        console.warn('⚠️ [SECURE_LOGIN] Failed to clear refresh tokens, continuing...', updateError.message);
+        // Continue with login even if token clearing fails
+      }
     }
 
-    // Generate JWT tokens
-    const accessToken = generateAccessToken(user._id, user.email, user.role, user.platformId);
-    const refreshToken = await saveRefreshToken(
-      user._id,
-      req.ip || '0.0.0.0',
-      req.headers['user-agent'] || 'platform-integration'
-    );
+    // Generate JWT tokens with retry logic for concurrency issues
+    let accessToken, refreshToken;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        accessToken = generateAccessToken(user._id, user.email, user.role, user.platformId);
+        refreshToken = await saveRefreshToken(
+          user._id,
+          req.ip || '0.0.0.0',
+          req.headers['user-agent'] || 'platform-integration'
+        );
+        break; // Success, exit retry loop
+      } catch (tokenError) {
+        retryCount++;
+        console.warn(`⚠️ [SECURE_LOGIN] Token generation attempt ${retryCount}/${maxRetries} failed:`, tokenError.message);
+        
+        if (retryCount >= maxRetries) {
+          console.error('❌ [SECURE_LOGIN] Max token generation retries exceeded');
+          throw new Error('Failed to generate authentication tokens. Please try again.');
+        }
+        
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 100));
+      }
+    }
 
     // Get or create room with platform admin
     const platformAdmin = await User.findById(platform.adminId);
@@ -266,7 +300,26 @@ export const securePlatformChatLogin = async (req, res) => {
 
   } catch (error) {
     console.error('Secure platform login error:', error);
-    return errorResponse(res, error.message, 500);
+    
+    // Provide more specific error messages
+    let errorMessage = 'Login failed. Please try again.';
+    let statusCode = 500;
+    
+    if (error.message.includes('No matching document found')) {
+      errorMessage = 'Authentication conflict. Please try again in a moment.';
+      statusCode = 409; // Conflict
+    } else if (error.message.includes('duplicate key')) {
+      errorMessage = 'User already exists with this information.';
+      statusCode = 409;
+    } else if (error.message.includes('validation')) {
+      errorMessage = 'Invalid user information provided.';
+      statusCode = 400;
+    } else if (error.message.includes('authentication tokens')) {
+      errorMessage = error.message;
+      statusCode = 503; // Service Unavailable
+    }
+    
+    return errorResponse(res, errorMessage, statusCode);
   }
 };
 

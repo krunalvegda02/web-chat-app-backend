@@ -63,19 +63,57 @@ const saveRefreshToken = async (userId, ipAddress = null, userAgent = null) => {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     try {
-        const user = await User.findById(userId);
-        if (!user) {
+        // Use atomic operation to avoid version conflicts
+        const result = await User.findByIdAndUpdate(
+            userId,
+            {
+                $push: {
+                    refreshTokens: {
+                        $each: [{
+                            token,
+                            expiresAt,
+                            ipAddress,
+                            userAgent,
+                            createdAt: new Date()
+                        }],
+                        $slice: -5 // Keep only last 5 tokens
+                    }
+                },
+                $pull: {
+                    refreshTokens: {
+                        $or: [
+                            { expiresAt: { $lt: new Date() } }, // Remove expired
+                            { revokedAt: { $exists: true } }    // Remove revoked
+                        ]
+                    }
+                }
+            },
+            { new: true }
+        );
+
+        if (!result) {
             throw new Error(MESSAGE.USER_NOT_FOUND);
         }
-
-        // Add token (auto-cleans via method)
-        user.addRefreshToken(token, expiresAt, ipAddress, userAgent);
-        await user.save();
 
         return token;
     } catch (error) {
         console.error('Error saving refresh token:', error);
-        throw error;
+        // Fallback to original method if atomic operation fails
+        try {
+            const user = await User.findById(userId);
+            if (!user) {
+                throw new Error(MESSAGE.USER_NOT_FOUND);
+            }
+
+            // Add token (auto-cleans via method)
+            user.addRefreshToken(token, expiresAt, ipAddress, userAgent);
+            await user.save();
+
+            return token;
+        } catch (fallbackError) {
+            console.error('Fallback save refresh token also failed:', fallbackError);
+            throw fallbackError;
+        }
     }
 };
 
@@ -101,16 +139,38 @@ const verifyRefreshToken = async (token, userId) => {
  */
 const revokeRefreshToken = async (token, userId) => {
     try {
-        const user = await User.findById(userId);
-        if (!user) {
+        // Use atomic operation to avoid version conflicts
+        const result = await User.findByIdAndUpdate(
+            userId,
+            {
+                $set: {
+                    'refreshTokens.$[elem].revokedAt': new Date()
+                }
+            },
+            {
+                arrayFilters: [{ 'elem.token': token }],
+                new: true
+            }
+        );
+
+        if (!result) {
             throw new Error(MESSAGE.USER_NOT_FOUND);
         }
-
-        user.revokeRefreshToken(token);
-        await user.save();
     } catch (error) {
         console.error('Error revoking refresh token:', error);
-        throw error;
+        // Fallback to original method
+        try {
+            const user = await User.findById(userId);
+            if (!user) {
+                throw new Error(MESSAGE.USER_NOT_FOUND);
+            }
+
+            user.revokeRefreshToken(token);
+            await user.save();
+        } catch (fallbackError) {
+            console.error('Fallback revoke refresh token also failed:', fallbackError);
+            throw fallbackError;
+        }
     }
 };
 
@@ -119,16 +179,35 @@ const revokeRefreshToken = async (token, userId) => {
  */
 const revokeAllRefreshTokens = async (userId) => {
     try {
-        const user = await User.findById(userId);
-        if (!user) {
+        // Use atomic operation to avoid version conflicts
+        const result = await User.findByIdAndUpdate(
+            userId,
+            {
+                $set: {
+                    refreshTokens: []
+                }
+            },
+            { new: true }
+        );
+
+        if (!result) {
             throw new Error(MESSAGE.USER_NOT_FOUND);
         }
-
-        user.revokeAllRefreshTokens();
-        await user.save();
     } catch (error) {
         console.error('Error revoking all tokens:', error);
-        throw error;
+        // Fallback to original method
+        try {
+            const user = await User.findById(userId);
+            if (!user) {
+                throw new Error(MESSAGE.USER_NOT_FOUND);
+            }
+
+            user.revokeAllRefreshTokens();
+            await user.save();
+        } catch (fallbackError) {
+            console.error('Fallback revoke all tokens also failed:', fallbackError);
+            throw fallbackError;
+        }
     }
 };
 
