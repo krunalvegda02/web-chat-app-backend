@@ -234,8 +234,8 @@
             </div>
 
             <div class="form-group">
-                <label for="email">Email Address *</label>
-                <input type="email" id="email" name="email" placeholder="Enter your email" required>
+                <label for="email">Email Address (optional)</label>
+                <input type="email" id="email" name="email" placeholder="Enter your email (optional)">
             </div>
 
             <div class="form-group">
@@ -250,11 +250,12 @@
 
             <div class="info-box">
                 <strong>💡 Test Examples:</strong><br>
-                User 1: Name=Alice, Email=alice@test.com, Phone=<strong>9111111111</strong><br>
-                User 2: Name=Bob, Email=bob@test.com, Phone=<strong>9122222222</strong><br>
-                User 3: Name=Charlie, Email=charlie@test.com, Phone=<strong>9133333333</strong><br>
+                User 1: Name=Alice, Phone=<strong>9111111111</strong><br>
+                User 2: Name=Bob, Phone=<strong>9122222222</strong><br>
+                User 3: Name=Charlie, Phone=<strong>9133333333</strong><br>
                 <br>
-                Each phone number = Different room!
+                Each phone number = Different room!<br>
+                <em>Email is optional - will auto-generate if not provided</em>
             </div>
 
             <div id="status" class="status"></div>
@@ -315,8 +316,8 @@
             const email = document.getElementById('email').value.trim();
             const phone = document.getElementById('phone').value.trim();
 
-            if (!name || !email || !phone) {
-                showStatus('Please fill all fields', 'error');
+            if (!name || !phone) {
+                showStatus('Please fill name and phone number', 'error');
                 return;
             }
 
@@ -332,7 +333,7 @@
                     },
                     body: JSON.stringify({
                         name,
-                        email,
+                        email: email || `${phone}@platform.local`, // Generate email if not provided
                         phone,
                         externalUserId: `test_${phone}`, // Use phone as unique identifier
                     })
@@ -360,7 +361,7 @@
                     const platformParams = new URLSearchParams({
                         apiKey: 'test-api-key',
                         name: name,
-                        email: email,
+                        email: email || `${phone}@platform.local`,
                         phone: phone,
                         autoLogin: 'true',
                         platform: 'test_platform'
@@ -380,11 +381,10 @@
         // WhatsApp icon click handler
         whatsappIcon.addEventListener('click', () => {
             const name = document.getElementById('name').value.trim();
-            const email = document.getElementById('email').value.trim();
             const phone = document.getElementById('phone').value.trim();
 
-            if (!name || !email || !phone) {
-                showStatus('Please fill all fields first', 'error');
+            if (!name || !phone) {
+                showStatus('Please fill name and phone number first', 'error');
                 return;
             }
 
@@ -409,7 +409,7 @@
             const randomNum = Math.floor(Math.random() * 9000000000) + 1000000000;
 
             document.getElementById('name').value = randomName;
-            document.getElementById('email').value = `${randomName.toLowerCase()}${randomNum}@example.com`;
+            document.getElementById('email').value = ''; // Leave email empty to test optional field
             document.getElementById('phone').value = `91${randomNum}`;
 
             showStatus(`✅ Generated: ${randomName} with phone 91${randomNum}`, 'success');

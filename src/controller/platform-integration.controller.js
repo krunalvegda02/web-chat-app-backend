@@ -102,15 +102,20 @@ export const securePlatformChatLogin = async (req, res) => {
     const { name, email, phone, password, externalUserId } = req.body;
     const platform = req.platform; // From middleware
 
-    // Validate required fields
-    if (!email || !phone) {
-      return errorResponse(res, 'Email and phone are required', 400);
+    // Validate required fields - phone is primary, email is optional
+    if (!phone) {
+      return errorResponse(res, 'Phone number is required', 400);
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return errorResponse(res, 'Invalid email format', 400);
+    // Generate email if not provided using platform name
+    const finalEmail = email || `user_${phone.replace(/\D/g, '')}@${platform.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`;
+
+    // Validate email format only if provided
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return errorResponse(res, 'Invalid email format', 400);
+      }
     }
 
     // Validate phone format (basic)
@@ -122,11 +127,11 @@ export const securePlatformChatLogin = async (req, res) => {
     let user = null;
     let isNewUser = false;
 
-    // Check if user exists by email or phone within this platform
+    // Check if user exists by phone (primary) or email within this platform
     user = await User.findOne({
       $or: [
-        { email, platformId: platform._id },
-        { phone: normalizedPhone, platformId: platform._id }
+        { phone: normalizedPhone, platformName: platform.name },
+        ...(email ? [{ email, platformName: platform.name }] : [])
       ]
     });
 
@@ -136,25 +141,13 @@ export const securePlatformChatLogin = async (req, res) => {
         return errorResponse(res, 'Name is required for new user', 400);
       }
 
-      // Check for duplicate email/phone across all platforms
-      const duplicateEmail = await User.findOne({ email });
-      const duplicatePhone = await User.findOne({ phone: normalizedPhone });
-
-      if (duplicateEmail && duplicateEmail.platformId.toString() !== platform._id.toString()) {
-        return errorResponse(res, 'Email already registered on another platform', 400);
-      }
-
-      if (duplicatePhone && duplicatePhone.platformId.toString() !== platform._id.toString()) {
-        return errorResponse(res, 'Phone already registered on another platform', 400);
-      }
-
       user = new User({
         name: name.trim(),
-        email,
+        email: finalEmail,
         phone: normalizedPhone,
         password: password || 'TempPassword@123',
         role: 'USER',
-        platformId: platform._id,
+        platformName: platform.name,
         status: 'ACTIVE',
         phoneVerified: false,
         externalUserId: externalUserId || null,
@@ -164,33 +157,33 @@ export const securePlatformChatLogin = async (req, res) => {
 
       await user.save();
       isNewUser = true;
-      console.log(`✅ [SECURE_LOGIN] Created user ${email} for platform ${platform.name}`);
+      console.log(`✅ [SECURE_LOGIN] Created user ${normalizedPhone} for platform ${platform.name}`);
     } else {
-      console.log(`✅ [SECURE_LOGIN] Found existing user ${email} for platform ${platform.name}`);
+      console.log(`✅ [SECURE_LOGIN] Found existing user ${normalizedPhone} for platform ${platform.name}`);
 
-      // Update external user ID if provided
-      if (externalUserId && user.externalUserId !== externalUserId) {
-        user.externalUserId = externalUserId;
-      }
+        // Update external user ID if provided
+        if (externalUserId && user.externalUserId !== externalUserId) {
+          user.externalUserId = externalUserId;
+        }
 
-      // Clear old refresh tokens for security using atomic operation
-      try {
-        await User.findByIdAndUpdate(
-          user._id,
-          { 
-            $set: { 
-              refreshTokens: [],
-              ...(externalUserId && user.externalUserId !== externalUserId ? { externalUserId } : {})
-            }
-          },
-          { new: true }
-        );
-        // Refresh user object after update
-        user = await User.findById(user._id);
-      } catch (updateError) {
-        console.warn('⚠️ [SECURE_LOGIN] Failed to clear refresh tokens, continuing...', updateError.message);
-        // Continue with login even if token clearing fails
-      }
+        // Clear old refresh tokens for security using atomic operation
+        try {
+          await User.findByIdAndUpdate(
+            user._id,
+            { 
+              $set: { 
+                refreshTokens: [],
+                ...(externalUserId && user.externalUserId !== externalUserId ? { externalUserId } : {})
+              }
+            },
+            { new: true }
+          );
+          // Refresh user object after update
+          user = await User.findById(user._id);
+        } catch (updateError) {
+          console.warn('⚠️ [SECURE_LOGIN] Failed to clear refresh tokens, continuing...', updateError.message);
+          // Continue with login even if token clearing fails
+        }
     }
 
     // Generate JWT tokens with retry logic for concurrency issues
@@ -200,7 +193,7 @@ export const securePlatformChatLogin = async (req, res) => {
     
     while (retryCount < maxRetries) {
       try {
-        accessToken = generateAccessToken(user._id, user.email, user.role, user.platformId);
+        accessToken = generateAccessToken(user._id, user.email, user.role, platform.name);
         refreshToken = await saveRefreshToken(
           user._id,
           req.ip || '0.0.0.0',
@@ -229,7 +222,7 @@ export const securePlatformChatLogin = async (req, res) => {
 
     // Create room key with platform scaling (Matches Room model pre-save hook)
     const sortedParticipants = [user._id.toString(), platformAdmin._id.toString()].sort();
-    const roomKey = `DIRECT_PLATFORM_${platform._id}_${sortedParticipants.join('_')}`;
+    const roomKey = `DIRECT_PLATFORM_${platform.name.replace(/[^a-zA-Z0-9]/g, '')}_${sortedParticipants.join('_')}`;
 
     // Check if room exists
     let room = await Room.findOne({ participantKey: roomKey })
@@ -241,7 +234,7 @@ export const securePlatformChatLogin = async (req, res) => {
       room = new Room({
         name: `Chat - ${user.name} & ${platformAdmin.name}`,
         type: 'DIRECT',
-        platformId: platform._id,
+        platformName: platform.name,
         createdVia: 'platform-integration',
         participantKey: roomKey,
         participants: [
@@ -333,7 +326,7 @@ export const getPlatformUserByExternalId = async (req, res) => {
 
     const user = await User.findOne({
       externalUserId,
-      platformId: platform._id
+      platformName: platform.name
     }).select('-password -refreshTokens');
 
     if (!user) {
@@ -358,7 +351,7 @@ export const updatePlatformUser = async (req, res) => {
 
     const user = await User.findOne({
       _id: userId,
-      platformId: platform._id
+      platformName: platform.name
     });
 
     if (!user) {
@@ -399,11 +392,11 @@ export const getPlatformStats = async (req, res) => {
     const platform = req.platform;
 
     const [totalUsers, activeUsers, totalRooms, activeRooms] = await Promise.all([
-      User.countDocuments({ platformId: platform._id, role: 'USER' }),
-      User.countDocuments({ platformId: platform._id, role: 'USER', status: 'ACTIVE' }),
-      Room.countDocuments({ platformId: platform._id }),
+      User.countDocuments({ platformName: platform.name, role: 'USER' }),
+      User.countDocuments({ platformName: platform.name, role: 'USER', status: 'ACTIVE' }),
+      Room.countDocuments({ platformName: platform.name }),
       Room.countDocuments({
-        platformId: platform._id,
+        platformName: platform.name,
         lastMessageTime: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Active in last 30 days
       })
     ]);
@@ -447,7 +440,7 @@ export const handlePlatformWebhook = async (req, res) => {
         if (data.externalUserId && data.email) {
           const user = await User.findOne({
             externalUserId: data.externalUserId,
-            platformId: platform._id
+            platformName: platform.name
           });
 
           if (user) {
@@ -463,7 +456,7 @@ export const handlePlatformWebhook = async (req, res) => {
       case 'user.deleted':
         if (data.externalUserId) {
           await User.findOneAndUpdate(
-            { externalUserId: data.externalUserId, platformId: platform._id },
+            { externalUserId: data.externalUserId, platformName: platform.name },
             { status: 'INACTIVE' }
           );
         }
