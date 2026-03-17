@@ -191,6 +191,13 @@
             display: block;
         }
 
+        .status.info {
+            background: #e2e3e5;
+            color: #383d41;
+            border: 1px solid #d6d8db;
+            display: block;
+        }
+
         @media (max-width: 600px) {
             .container {
                 padding: 25px;
@@ -229,6 +236,11 @@
 
         <form id="testForm">
             <div class="form-group">
+                <label for="platformName">Platform Name *</label>
+                <input type="text" id="platformName" name="platformName" placeholder="Enter platform name" required>
+            </div>
+
+            <div class="form-group">
                 <label for="name">Your Name *</label>
                 <input type="text" id="name" name="name" placeholder="Enter your name" required>
             </div>
@@ -250,19 +262,22 @@
 
             <div class="info-box">
                 <strong>💡 Test Examples:</strong><br>
+                Platform: <strong>TestPlatform</strong> or <strong>MyCompany</strong><br>
                 User 1: Name=Alice, Phone=<strong>9111111111</strong><br>
                 User 2: Name=Bob, Phone=<strong>9122222222</strong><br>
                 User 3: Name=Charlie, Phone=<strong>9133333333</strong><br>
                 <br>
-                Each phone number = Different room!<br>
+                Each platform + phone number = Different room!<br>
                 <em>Email is optional - will auto-generate if not provided</em>
             </div>
 
             <div id="status" class="status"></div>
 
             <div style="margin-top: 15px; text-align: center;">
-                <button type="button" id="randomizeBtn" class="btn-secondary" style="font-size: 12px; padding: 8px;">🎲
+                <button type="button" id="randomizeBtn" class="btn-secondary" style="font-size: 12px; padding: 8px; margin-right: 10px;">🎲
                     Generate Random User</button>
+                <button type="button" id="showPlatformsBtn" class="btn-secondary" style="font-size: 12px; padding: 8px;">📋
+                    Show Available Platforms</button>
             </div>
         </form>
     </div>
@@ -284,22 +299,40 @@
         const whatsappIcon = document.getElementById('whatsappIcon');
         let platformId = null;
 
-        // Fetch platform ID on page load
-        async function fetchPlatformId() {
+        // Fetch platform ID based on platform name
+        async function fetchPlatformByName(platformName) {
             try {
                 const response = await fetch(`${API_BASE_URL}/platforms/public/list`);
                 const data = await response.json();
 
                 if (data.data && data.data.platforms && data.data.platforms.length > 0) {
-                    platformId = data.data.platforms[0]._id;
-                    console.log('Platform ID:', platformId);
+                    // Find platform by name (case-insensitive)
+                    const platform = data.data.platforms.find(p => 
+                        p.name.toLowerCase() === platformName.toLowerCase()
+                    );
+                    
+                    if (platform) {
+                        return { success: true, platformId: platform._id, platform: platform };
+                    } else {
+                        // Platform not found - return error
+                        const availablePlatforms = data.data.platforms.map(p => p.name).join(', ');
+                        return { 
+                            success: false, 
+                            error: `Platform "${platformName}" not found. Available platforms: ${availablePlatforms}` 
+                        };
+                    }
                 } else {
-                    console.error('No platforms found');
-                    showStatus('Error: No platforms available. Please create a platform first.', 'error');
+                    return { 
+                        success: false, 
+                        error: 'No platforms available. Please create a platform first.' 
+                    };
                 }
             } catch (error) {
                 console.error('Error fetching platform:', error);
-                showStatus('Error: Could not fetch platform information', 'error');
+                return { 
+                    success: false, 
+                    error: 'Could not fetch platform information. Please check your connection.' 
+                };
             }
         }
 
@@ -307,23 +340,31 @@
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            if (!platformId) {
-                showStatus('Platform not loaded. Please refresh the page.', 'error');
-                return;
-            }
-
+            const platformName = document.getElementById('platformName').value.trim();
             const name = document.getElementById('name').value.trim();
             const email = document.getElementById('email').value.trim();
             const phone = document.getElementById('phone').value.trim();
 
-            if (!name || !phone) {
-                showStatus('Please fill name and phone number', 'error');
+            if (!platformName || !name || !phone) {
+                showStatus('Please fill platform name, name and phone number', 'error');
                 return;
             }
 
-            showStatus('Logging in and creating chat room...', 'loading');
+            showStatus('Validating platform and logging in...', 'loading');
 
             try {
+                // Get platform ID based on platform name
+                const platformResult = await fetchPlatformByName(platformName);
+                
+                if (!platformResult.success) {
+                    showStatus(platformResult.error, 'error');
+                    return; // Stop execution - do not navigate
+                }
+                
+                platformId = platformResult.platformId;
+                console.log('Using Platform ID:', platformId, 'for platform:', platformName);
+                console.log('Platform details:', platformResult.platform);
+
                 // Call secure integration endpoint
                 const response = await fetch(`${API_BASE_URL}/platforms/integration/chat-login`, {
                     method: 'POST',
@@ -333,9 +374,10 @@
                     },
                     body: JSON.stringify({
                         name,
-                        email: email || `${phone}@platform.local`, // Generate email if not provided
+                        email: email || `${phone}@${platformName.toLowerCase().replace(/\s+/g, '')}.local`, // Generate email with platform name
                         phone,
-                        externalUserId: `test_${phone}`, // Use phone as unique identifier
+                        externalUserId: `${platformName.toLowerCase()}_${phone}`, // Use platform + phone as unique identifier
+                        platformName: platformName, // Include platform name in request
                     })
                 });
 
@@ -344,13 +386,15 @@
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error('Response error:', errorText);
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    showStatus(`Login failed: HTTP ${response.status} - ${errorText}`, 'error');
+                    return; // Stop execution - do not navigate
                 }
 
                 const data = await response.json();
 
                 console.log('Login successful:', data.data);
                 console.log('Room ID:', data.data.room._id);
+                console.log('Platform:', platformName);
                 console.log('User Phone:', phone);
 
                 showStatus('✅ Login successful! Redirecting to chat...', 'success');
@@ -361,10 +405,10 @@
                     const platformParams = new URLSearchParams({
                         apiKey: 'test-api-key',
                         name: name,
-                        email: email || `${phone}@platform.local`,
+                        email: email || `${phone}@${platformName.toLowerCase().replace(/\s+/g, '')}.local`,
                         phone: phone,
                         autoLogin: 'true',
-                        platform: 'test_platform'
+                        platform: platformName.toLowerCase().replace(/\s+/g, '_')
                     });
                     const redirectUrl = `${baseUrl}?${platformParams.toString()}`;
                     console.log('✅ Redirecting to:', redirectUrl);
@@ -380,11 +424,12 @@
 
         // WhatsApp icon click handler
         whatsappIcon.addEventListener('click', () => {
+            const platformName = document.getElementById('platformName').value.trim();
             const name = document.getElementById('name').value.trim();
             const phone = document.getElementById('phone').value.trim();
 
-            if (!name || !phone) {
-                showStatus('Please fill name and phone number first', 'error');
+            if (!platformName || !name || !phone) {
+                showStatus('Please fill platform name, name and phone number first', 'error');
                 return;
             }
 
@@ -404,20 +449,47 @@
 
         // Randomize button handler - generates unique phone numbers
         document.getElementById('randomizeBtn').addEventListener('click', () => {
+            const platforms = ['TestPlatform', 'MyCompany', 'DemoApp', 'ChatBot', 'SupportDesk'];
             const names = ['Alice', 'Bob', 'Charlie', 'David', 'Eve', 'Frank', 'Grace', 'Henry'];
+            const randomPlatform = platforms[Math.floor(Math.random() * platforms.length)];
             const randomName = names[Math.floor(Math.random() * names.length)];
             const randomNum = Math.floor(Math.random() * 9000000000) + 1000000000;
 
+            document.getElementById('platformName').value = randomPlatform;
             document.getElementById('name').value = randomName;
             document.getElementById('email').value = ''; // Leave email empty to test optional field
             document.getElementById('phone').value = `91${randomNum}`;
 
-            showStatus(`✅ Generated: ${randomName} with phone 91${randomNum}`, 'success');
+            showStatus(`✅ Generated: ${randomPlatform} - ${randomName} with phone 91${randomNum}`, 'success');
         });
 
-        // Pre-fill form if coming back from platform
+        // Show available platforms to help user
+        async function showAvailablePlatforms() {
+            try {
+                showStatus('Fetching available platforms...', 'loading');
+                const response = await fetch(`${API_BASE_URL}/platforms/public/list`);
+                const data = await response.json();
+
+                if (data.data && data.data.platforms && data.data.platforms.length > 0) {
+                    const platformNames = data.data.platforms.map(p => p.name).join(', ');
+                    showStatus(`Available platforms: ${platformNames}`, 'info');
+                } else {
+                    showStatus('No platforms available', 'error');
+                }
+            } catch (error) {
+                console.error('Error fetching platforms:', error);
+                showStatus('Could not fetch available platforms', 'error');
+            }
+        }
+
+            // Show platforms button handler
+        document.getElementById('showPlatformsBtn').addEventListener('click', () => {
+            showAvailablePlatforms();
+        });
+
+        // Page loaded - ready to accept platform names
         window.addEventListener('load', () => {
-            fetchPlatformId();
+            console.log('Test chat page loaded - ready to accept platform names');
         });
     </script>
 </body>
