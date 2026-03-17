@@ -35,6 +35,14 @@ export const verifyJWT = async (req, res, next) => {
       });
     }
 
+    // Check if user account is active
+    if (user.status !== 'ACTIVE') {
+      return res.status(403).json({
+        success: false,
+        message: "Account has been deactivated",
+      });
+    }
+
     req.user = user;
     next();
 

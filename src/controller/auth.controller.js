@@ -144,6 +144,10 @@ const login = async (req, res, next) => {
       return errorResponse(res, MESSAGE.INVALID_CREDENTIALS, 401);
     }
 
+    if (user.status !== 'ACTIVE') {
+      return errorResponse(res, 'Account has been deactivated', 403);
+    }
+
     if (user.status === 'BANNED') {
       return errorResponse(res, MESSAGE.ACCOUNT_BANNED, 403);
     }

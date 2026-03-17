@@ -348,6 +348,18 @@ export const togglePlatformStatus = async (req, res) => {
     const adminUser = await User.findById(platform.adminId);
     if (adminUser) {
       adminUser.status = platform.status;
+      
+      // If deactivating, revoke all refresh tokens to force logout
+      if (platform.status === 'INACTIVE') {
+        adminUser.revokeAllRefreshTokens();
+        
+        // Force disconnect from socket if connected
+        const { forceUserDisconnect } = await import('../sockets/socketUtils.js').catch(() => ({ forceUserDisconnect: null }));
+        if (forceUserDisconnect) {
+          forceUserDisconnect(req.app.get('io'), platform.adminId.toString(), 'Account has been deactivated');
+        }
+      }
+      
       await adminUser.save();
     }
 

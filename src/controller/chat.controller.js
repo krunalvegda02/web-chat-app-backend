@@ -220,8 +220,9 @@ export const getAllActiveRooms = async (req, res, next) => {
 
             const unreadCount = await Message.countDocuments({
                 roomId: room._id,
-                senderId: { $in: otherParticipantIds },
+                senderId: { $ne: userId },
                 isDeleted: false,
+                deletedForUsers: { $ne: userId },
                 'readBy.userId': { $ne: userId }
             });
 
@@ -291,7 +292,7 @@ export const getRoomMessagesPublic = async (req, res, next) => {
 
         console.log(`📖 [PUBLIC] Fetching messages for room ${roomId}`);
 
-        const messages = await Message.find({ roomId, isDeleted: false })
+        const messages = await Message.find({ roomId })
             .populate('senderId', 'name email avatar role')
             .populate('readBy.userId', 'name')
             .populate('replyTo')
@@ -300,7 +301,14 @@ export const getRoomMessagesPublic = async (req, res, next) => {
             .limit(limit)
             .lean();
 
-        const total = await Message.countDocuments({ roomId, isDeleted: false });
+        const total = await Message.countDocuments({ roomId });
+
+        // Ensure isForwarded field is included in the response
+        const messagesWithForwarded = messages.map(msg => ({
+            ...msg,
+            isForwarded: msg.isForwarded || false,
+            forwarded: msg.isForwarded || false
+        }));
 
         let displayName = room.name;
         let displayPhone = null;
@@ -327,7 +335,7 @@ export const getRoomMessagesPublic = async (req, res, next) => {
                 type: room.type,
                 participants: room.participants
             },
-            messages: messages,
+            messages: messagesWithForwarded,
             pagination: {
                 page,
                 limit,
@@ -361,7 +369,11 @@ export const getRoomMessages = async (req, res, next) => {
             return errorResponse(res, 'Unauthorized access', 403);
         }
 
-        const messages = await Message.find({ roomId, isDeleted: false })
+        const userId = req.user._id.toString();
+        const messages = await Message.find({
+            roomId,
+            deletedForUsers: { $ne: userId }
+        })
             .populate('senderId', 'name email avatar role')
             .populate('readBy.userId', 'name')
             .populate('replyTo')
@@ -370,7 +382,17 @@ export const getRoomMessages = async (req, res, next) => {
             .limit(limit)
             .lean();
 
-        const total = await Message.countDocuments({ roomId, isDeleted: false });
+        const total = await Message.countDocuments({
+            roomId,
+            deletedForUsers: { $ne: userId }
+        });
+
+        // Ensure isForwarded field is included in the response
+        const messagesWithForwarded = messages.map(msg => ({
+            ...msg,
+            isForwarded: msg.isForwarded || false,
+            forwarded: msg.isForwarded || false
+        }));
 
         let displayName = room.name;
         let displayPhone = null;
@@ -397,7 +419,7 @@ export const getRoomMessages = async (req, res, next) => {
                 type: room.type,
                 participants: room.participants
             },
-            messages: messages,
+            messages: messagesWithForwarded,
             pagination: {
                 page,
                 limit,
@@ -415,7 +437,7 @@ export const getRoomMessages = async (req, res, next) => {
 // ✅ SEND MESSAGE WITH MEDIA
 export const sendMessageWithMedia = async (req, res, next) => {
     try {
-        const { roomId, content, type, media, replyTo, tempId } = req.body;
+        const { roomId, content, type, media, replyTo, tempId, isForwarded, forwarded } = req.body;
 
         if (!roomId || (!content && (!media || media.length === 0))) {
             return errorResponse(res, 'Room ID and content or media is required', 400);
@@ -456,7 +478,8 @@ export const sendMessageWithMedia = async (req, res, next) => {
             media: media || [],
             status: recipientOnline ? 'delivered' : 'sent',
             sentAt: new Date(),
-            replyTo: replyTo || undefined
+            replyTo: replyTo || undefined,
+            isForwarded: isForwarded || forwarded || false
         });
 
         await message.save();
@@ -504,6 +527,8 @@ export const sendMessageWithMedia = async (req, res, next) => {
                 isEdited: false,
                 deletedAt: null,
                 optimistic: false,
+                isForwarded: message.isForwarded,
+                forwarded: message.isForwarded
             };
 
             // Emit to room (for active viewers)
@@ -828,7 +853,7 @@ export const getMemberChatHistory = async (req, res, next) => {
 
         const messages = await Message.find({
             roomId,
-            isDeleted: false
+            deletedForUsers: { $ne: memberId }
         })
             .populate('senderId', 'name email avatar role')
             .populate('readBy.userId', 'name')
@@ -839,8 +864,15 @@ export const getMemberChatHistory = async (req, res, next) => {
 
         const total = await Message.countDocuments({
             roomId,
-            isDeleted: false
+            deletedForUsers: { $ne: memberId }
         });
+
+        // Ensure isForwarded field is included in the response
+        const messagesWithForwarded = messages.map(msg => ({
+            ...msg,
+            isForwarded: msg.isForwarded || false,
+            forwarded: msg.isForwarded || false
+        }));
 
         return successResponse(res, {
             roomId,
@@ -850,7 +882,7 @@ export const getMemberChatHistory = async (req, res, next) => {
                 type: room.type,
                 participants: room.participants
             },
-            messages: messages,
+            messages: messagesWithForwarded,
             pagination: {
                 page,
                 limit,
@@ -902,8 +934,9 @@ export const getUserRooms = async (req, res, next) => {
 
             const unreadCount = await Message.countDocuments({
                 roomId: room._id,
-                senderId: { $in: otherParticipantIds },
+                senderId: { $ne: userId },
                 isDeleted: false,
+                deletedForUsers: { $ne: userId },
                 'readBy.userId': { $ne: userId }
             });
 

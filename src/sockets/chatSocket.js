@@ -5,6 +5,7 @@ import CallLog from '../models/callLog.model.js';
 import { decodeToken } from '../utils/tokenUtils.js';
 import { sendMessageNotification } from '../controller/notification.controller.js';
 import { translateText } from '../services/translationService.js';
+import { setUserSocketsMap } from './socketUtils.js';
 
 
 // ============ CONSTANTS ============
@@ -182,8 +183,11 @@ const cleanupUser = (io, userId) => {
 // ============ MAIN SOCKET HANDLER ============
 
 export const registerChatSocket = (io) => {
+  // Set the global user sockets map for utility functions
+  setUserSocketsMap(userSockets);
+  
   // ========== CONNECTION HANDLER ==========
-  io.of('/chat').on('connection', (socket) => {
+  io.of('/chat').on('connection', async (socket) => {
     console.log(`🔌 [SOCKET] New connection: ${socket.id}`);
 
     // ========== AUTHENTICATION ==========
@@ -245,6 +249,23 @@ export const registerChatSocket = (io) => {
     // ========== SETUP USER SESSION ==========
     const userId = decoded.userId.toString ? decoded.userId.toString() : decoded.userId;
     const userRole = decoded.role;
+    
+    // Verify user status from database
+    try {
+      const user = await User.findById(userId).select('status');
+      if (!user || user.status !== 'ACTIVE') {
+        console.warn(`❌ [AUTH] User ${userId} is not active (status: ${user?.status || 'not found'})`);
+        socket.emit('auth_error', { message: 'Account has been deactivated' });
+        socket.disconnect(true);
+        return;
+      }
+    } catch (error) {
+      console.error(`❌ [AUTH] Error checking user status: ${error.message}`);
+      socket.emit('auth_error', { message: 'Authentication failed' });
+      socket.disconnect(true);
+      return;
+    }
+    
     userSockets.set(userId, socket.id);
     userRateLimiters.set(userId, new RateLimiter(userId));
 
@@ -845,30 +866,85 @@ export const registerChatSocket = (io) => {
       }
     });
 
-    // ========== EVENT: Delete Message ==========
-    socket.on('delete_message', async ({ messageId }) => {
+    socket.on('delete_message', async ({ messageId, deleteType, userId: targetUserId }) => {
+      console.log(`🗑️ [SOCKET] delete_message RECEIVED:`, { messageId, deleteType, targetUserId, userId });
       try {
         if (!rateLimiter.check('delete_message')) return;
         if (!messageId) return;
 
         const message = await Message.findById(messageId);
-        if (!message) return;
+        if (!message) {
+          return socket.emit('error', { message: 'Message not found' });
+        }
 
-        const access = verifyMessageOwnership(message, userId);
-        if (!access.valid) return;
+        const roomId = message.roomId.toString();
+        const room = await Room.findById(roomId);
+        const access = verifyRoomAccess(room, userId, userRole);
 
-        message.isDeleted = true;
-        message.deletedAt = new Date();
-        await message.save();
+        if (!access.valid) {
+          return socket.emit('error', { message: access.error });
+        }
 
-        emitToRoom(io, message.roomId, 'message_deleted', {
-          roomId: message.roomId,
-          messageId,
-          deletedAt: message.deletedAt
-        });
+        if (deleteType === 'forEveryone') {
+          // Only sender can delete for everyone
+          const ownership = verifyMessageOwnership(message, userId);
+          if (!ownership.valid) {
+            return socket.emit('error', { message: ownership.error });
+          }
+
+          message.isDeleted = true;
+          message.deletedAt = new Date();
+          message.deletedBy = userId;
+          // Clear sensitive content
+          message.content = 'This message was deleted';
+          message.media = [];
+          await message.save();
+
+          console.log(`🗑️ [DELETE_MESSAGE] Message ${messageId} deleted for everyone by ${userId}`);
+
+          // Notify everyone in the room
+          emitToRoom(io, roomId, 'message_deleted', {
+            roomId,
+            messageId,
+            deletedAt: message.deletedAt,
+            deleteType: 'forEveryone'
+          });
+
+          // Also notify individual participants for robustness
+          room.participants.forEach(p => {
+            if (p.userId) {
+              emitToUser(io, p.userId.toString(), 'message_deleted', {
+                roomId,
+                messageId,
+                deletedAt: message.deletedAt,
+                deleteType: 'forEveryone'
+              });
+            }
+          });
+        } else {
+          // Delete for me (default or explicit)
+          const userIdToDeleteFor = targetUserId || userId;
+
+          // Add to deletedForUsers if not already there
+          if (!message.deletedForUsers.includes(userIdToDeleteFor)) {
+            message.deletedForUsers.push(userIdToDeleteFor);
+            await message.save();
+          }
+
+          console.log(`🗑️ [DELETE_MESSAGE] Message ${messageId} deleted for user ${userIdToDeleteFor}`);
+
+          // Notify ONLY the user who deleted it (to sync across their own devices)
+          emitToUser(io, userIdToDeleteFor, 'message_deleted', {
+            roomId,
+            messageId,
+            deleteType: 'forMe',
+            userId: userIdToDeleteFor
+          });
+        }
 
       } catch (error) {
         console.error(`❌ [DELETE_MESSAGE] Error: ${error.message}`);
+        socket.emit('error', { message: 'Internal server error during deletion' });
       }
     });
 
