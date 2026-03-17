@@ -510,8 +510,65 @@ export const fixPlatformAdmins = async (req, res) => {
 };
 
 // ============================================
-// CREATE PLATFORM USER (WhatsApp Test)
+// GET PLATFORM THEME
 // ============================================
+export const getPlatformTheme = async (req, res) => {
+  try {
+    const { platformId } = req.params;
+
+    const platform = await Platform.findById(platformId).select('theme');
+
+    if (!platform) {
+      return errorResponse(res, 'Platform not found', 404);
+    }
+
+    return successResponse(res, { theme: platform.theme || {} });
+  } catch (error) {
+    console.error('Get platform theme error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// ============================================
+// UPDATE PLATFORM THEME (Platform Admin)
+// ============================================
+export const updatePlatformTheme = async (req, res) => {
+  try {
+    const { platformId } = req.params;
+
+    // Extract theme from body, excluding platformId
+    const { platformId: _, ...themeUpdates } = req.body;
+
+    const platform = await Platform.findById(platformId);
+
+    if (!platform) {
+      return errorResponse(res, 'Platform not found', 404);
+    }
+
+    // Check if user is admin of this platform or super admin
+    if (req.user.role !== 'SUPER_ADMIN' && req.user._id.toString() !== platform.adminId.toString()) {
+      return errorResponse(res, 'Unauthorized', 403);
+    }
+
+    // Merge theme updates with existing theme
+    platform.theme = {
+      ...(platform.theme || {}),
+      ...themeUpdates,
+    };
+
+    platform.updatedAt = Date.now();
+    await platform.save();
+
+    return successResponse(
+      res,
+      { theme: platform.theme },
+      'Platform theme updated successfully'
+    );
+  } catch (error) {
+    console.error('Update platform theme error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
 export const createPlatformUser = async (req, res) => {
   try {
     const { platformId, name, email, phone } = req.body;

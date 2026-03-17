@@ -15,6 +15,8 @@ import {
   platformChatLogin,
   debugJwtSecret,
   verifyTokenDebug,
+  getPlatformTheme,
+  updatePlatformTheme,
 } from '../controller/platform.controller.js';
 import {
   generatePlatformApiKey,
@@ -55,6 +57,10 @@ router.delete('/:platformId', authenticate, requireRole(['SUPER_ADMIN']), delete
 router.get('/:platformId/users', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getPlatformUsers);
 router.get('/users/:userId', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getUserById);
 router.patch('/users/:userId/status', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), updateUserStatus);
+
+// Platform theme management
+router.get('/:platformId/theme', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getPlatformTheme);
+router.put('/:platformId/theme', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), updatePlatformTheme);
 
 // ============================================
 // PLATFORM INTEGRATION ROUTES (Secure API)
