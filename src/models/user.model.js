@@ -57,6 +57,11 @@ const userSchema = new mongoose.Schema({
     default: null,
     sparse: true,
   },
+  platformName: {
+    type: String,
+    trim: true,
+    default: null,
+  },
   tenantId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Tenant',
@@ -165,9 +170,12 @@ const userSchema = new mongoose.Schema({
 });
 
 // ========== INDEXES ==========
-userSchema.index({ email: 1, platformId: 1 }, { unique: true, sparse: true }); // Unique email per platform
-userSchema.index({ phone: 1, platformId: 1 }, { unique: true, sparse: true }); // Unique phone per platform
+userSchema.index({ email: 1, platformId: 1 }, { unique: true, sparse: true });
+userSchema.index({ phone: 1, platformId: 1 }, { unique: true, sparse: true });
+userSchema.index({ email: 1, platformName: 1 }, { unique: true, sparse: true });
+userSchema.index({ phone: 1, platformName: 1 }, { unique: true, sparse: true });
 userSchema.index({ platformId: 1 });
+userSchema.index({ platformName: 1 });
 userSchema.index({ tenantId: 1 });
 userSchema.index({ role: 1 });
 userSchema.index({ createdAt: -1 });

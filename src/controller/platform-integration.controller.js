@@ -127,11 +127,21 @@ export const securePlatformChatLogin = async (req, res) => {
     let user = null;
     let isNewUser = false;
 
-    // Check if user exists by phone (primary) or email within this platform
+    // Check if user exists by phone (primary) or email within this platform (using both ID and name for stability)
     user = await User.findOne({
-      $or: [
-        { phone: normalizedPhone, platformName: platform.name },
-        ...(email ? [{ email, platformName: platform.name }] : [])
+      $and: [
+        {
+          $or: [
+            { platformId: platform._id },
+            { platformName: platform.name }
+          ]
+        },
+        {
+          $or: [
+            { phone: normalizedPhone },
+            ...(email ? [{ email }] : [])
+          ]
+        }
       ]
     });
 
@@ -141,56 +151,97 @@ export const securePlatformChatLogin = async (req, res) => {
         return errorResponse(res, 'Name is required for new user', 400);
       }
 
-      user = new User({
-        name: name.trim(),
-        email: finalEmail,
-        phone: normalizedPhone,
-        password: password || 'TempPassword@123',
-        role: 'USER',
-        platformName: platform.name,
-        status: 'ACTIVE',
-        phoneVerified: false,
-        externalUserId: externalUserId || null,
-        contacts: [],
-        blockedUsers: [],
-      });
+      try {
+        user = new User({
+          name: name.trim(),
+          email: finalEmail,
+          phone: normalizedPhone,
+          password: password || 'TempPassword@123',
+          role: 'USER',
+          platformId: platform._id,
+          platformName: platform.name,
+          status: 'ACTIVE',
+          phoneVerified: false,
+          externalUserId: externalUserId || null,
+          contacts: [],
+          blockedUsers: [],
+        });
 
-      await user.save();
-      isNewUser = true;
-      console.log(`✅ [SECURE_LOGIN] Created user ${normalizedPhone} for platform ${platform.name}`);
-    } else {
-      console.log(`✅ [SECURE_LOGIN] Found existing user ${normalizedPhone} for platform ${platform.name}`);
-
-        // Update external user ID if provided
-        if (externalUserId && user.externalUserId !== externalUserId) {
-          user.externalUserId = externalUserId;
-        }
-
-        // Clear old refresh tokens for security using atomic operation
-        try {
-          await User.findByIdAndUpdate(
-            user._id,
-            { 
-              $set: { 
-                refreshTokens: [],
-                ...(externalUserId && user.externalUserId !== externalUserId ? { externalUserId } : {})
+        await user.save();
+        isNewUser = true;
+        console.log(`✅ [SECURE_LOGIN] Created user ${normalizedPhone} for platform ${platform.name}`);
+      } catch (saveError) {
+        // Handle race condition where user was created between findOne and save
+        if (saveError.code === 11000 || saveError.message.includes('duplicate key')) {
+          console.warn(`⚠️ [SECURE_LOGIN] Race condition: user ${normalizedPhone} created during login. Fetching...`);
+          user = await User.findOne({
+            $and: [
+              {
+                $or: [
+                  { platformId: platform._id },
+                  { platformName: platform.name }
+                ]
+              },
+              {
+                $or: [
+                  { phone: normalizedPhone },
+                  ...(email ? [{ email }] : [])
+                ]
               }
-            },
-            { new: true }
-          );
-          // Refresh user object after update
-          user = await User.findById(user._id);
-        } catch (updateError) {
-          console.warn('⚠️ [SECURE_LOGIN] Failed to clear refresh tokens, continuing...', updateError.message);
-          // Continue with login even if token clearing fails
+            ]
+          });
+
+          if (!user) {
+            throw new Error('User creation conflict. Please try again.');
+          }
+        } else {
+          throw saveError;
         }
+      }
+    }
+
+    if (user) {
+      console.log(`✅ [SECURE_LOGIN] Logging in user ${normalizedPhone} for platform ${platform.name}`);
+
+      // Update external user ID if provided
+      if (externalUserId && user.externalUserId !== externalUserId) {
+        user.externalUserId = externalUserId;
+      }
+
+      // Ensure platform details are synced
+      user.platformId = platform._id;
+      user.platformName = platform.name;
+
+      // Clear old refresh tokens and update meta in one atomic operation
+      try {
+        await User.findByIdAndUpdate(
+          user._id,
+          {
+            $set: {
+              refreshTokens: [],
+              platformId: platform._id,
+              platformName: platform.name,
+              ...(externalUserId ? { externalUserId } : {})
+            }
+          }
+        );
+      } catch (updateError) {
+        if (updateError.code === 11000 || updateError.message.includes('duplicate key')) {
+          console.warn('⚠️ [SECURE_LOGIN] Update conflict (duplicate user?), attempting to merge...');
+          // If we hit a duplicate key here, it usually means there are TWO records for the same user
+          // (one with ID and one with Name). Ideally we should merge, but for now just proceed
+          // with the one we found.
+        } else {
+          console.warn('⚠️ [SECURE_LOGIN] Failed to update user meta, continuing...', updateError.message);
+        }
+      }
     }
 
     // Generate JWT tokens with retry logic for concurrency issues
     let accessToken, refreshToken;
     let retryCount = 0;
     const maxRetries = 3;
-    
+
     while (retryCount < maxRetries) {
       try {
         accessToken = generateAccessToken(user._id, user.email, user.role, platform.name);
@@ -203,12 +254,12 @@ export const securePlatformChatLogin = async (req, res) => {
       } catch (tokenError) {
         retryCount++;
         console.warn(`⚠️ [SECURE_LOGIN] Token generation attempt ${retryCount}/${maxRetries} failed:`, tokenError.message);
-        
+
         if (retryCount >= maxRetries) {
           console.error('❌ [SECURE_LOGIN] Max token generation retries exceeded');
           throw new Error('Failed to generate authentication tokens. Please try again.');
         }
-        
+
         // Wait before retry (exponential backoff)
         await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 100));
       }
@@ -222,7 +273,9 @@ export const securePlatformChatLogin = async (req, res) => {
 
     // Create room key with platform scaling (Matches Room model pre-save hook)
     const sortedParticipants = [user._id.toString(), platformAdmin._id.toString()].sort();
-    const roomKey = `DIRECT_PLATFORM_${platform.name.replace(/[^a-zA-Z0-9]/g, '')}_${sortedParticipants.join('_')}`;
+    const roomKey = `DIRECT_PLATFORM_${platform._id}_${sortedParticipants.join('_')}`;
+
+    console.log(`🔑 [SECURE_LOGIN] Generated roomKey: ${roomKey}`);
 
     // Check if room exists
     let room = await Room.findOne({ participantKey: roomKey })
@@ -234,6 +287,7 @@ export const securePlatformChatLogin = async (req, res) => {
       room = new Room({
         name: `Chat - ${user.name} & ${platformAdmin.name}`,
         type: 'DIRECT',
+        platformId: platform._id,
         platformName: platform.name,
         createdVia: 'platform-integration',
         participantKey: roomKey,
@@ -249,11 +303,21 @@ export const securePlatformChatLogin = async (req, res) => {
         await room.populate('participants.userId', 'name email avatar role phone');
         console.log(`✅ [SECURE_LOGIN] Created room: ${room._id}`);
       } catch (error) {
-        if (error.code === 11000) {
+        if (error.code === 11000 || error.message.includes('duplicate key')) {
+          console.warn(`⚠️ [SECURE_LOGIN] Room conflict, searching with generated key: ${roomKey}`);
           // Handle race condition
           room = await Room.findOne({ participantKey: roomKey })
             .populate('participants.userId', 'name email avatar role phone')
             .populate('lastMessage');
+
+          if (!room) {
+            // Try searching by participants as absolute fallback
+            room = await Room.findOne({
+              type: 'DIRECT',
+              platformId: platform._id,
+              'participants.userId': { $all: [user._id, platformAdmin._id] }
+            }).populate('participants.userId', 'name email avatar role phone');
+          }
         } else {
           throw error;
         }
@@ -293,16 +357,20 @@ export const securePlatformChatLogin = async (req, res) => {
 
   } catch (error) {
     console.error('Secure platform login error:', error);
-    
+
     // Provide more specific error messages
     let errorMessage = 'Login failed. Please try again.';
     let statusCode = 500;
-    
+
     if (error.message.includes('No matching document found')) {
       errorMessage = 'Authentication conflict. Please try again in a moment.';
       statusCode = 409; // Conflict
     } else if (error.message.includes('duplicate key')) {
-      errorMessage = 'User already exists with this information.';
+      if (error.message.includes('participantKey')) {
+        errorMessage = 'Chat room conflict. Please try again.';
+      } else {
+        errorMessage = 'User already exists with this information.';
+      }
       statusCode = 409;
     } else if (error.message.includes('validation')) {
       errorMessage = 'Invalid user information provided.';
@@ -311,7 +379,7 @@ export const securePlatformChatLogin = async (req, res) => {
       errorMessage = error.message;
       statusCode = 503; // Service Unavailable
     }
-    
+
     return errorResponse(res, errorMessage, statusCode);
   }
 };
@@ -326,7 +394,7 @@ export const getPlatformUserByExternalId = async (req, res) => {
 
     const user = await User.findOne({
       externalUserId,
-      platformName: platform.name
+      platformId: platform._id
     }).select('-password -refreshTokens');
 
     if (!user) {
@@ -351,7 +419,7 @@ export const updatePlatformUser = async (req, res) => {
 
     const user = await User.findOne({
       _id: userId,
-      platformName: platform.name
+      platformId: platform._id
     });
 
     if (!user) {
@@ -392,11 +460,11 @@ export const getPlatformStats = async (req, res) => {
     const platform = req.platform;
 
     const [totalUsers, activeUsers, totalRooms, activeRooms] = await Promise.all([
-      User.countDocuments({ platformName: platform.name, role: 'USER' }),
-      User.countDocuments({ platformName: platform.name, role: 'USER', status: 'ACTIVE' }),
-      Room.countDocuments({ platformName: platform.name }),
+      User.countDocuments({ platformId: platform._id, role: 'USER' }),
+      User.countDocuments({ platformId: platform._id, role: 'USER', status: 'ACTIVE' }),
+      Room.countDocuments({ platformId: platform._id }),
       Room.countDocuments({
-        platformName: platform.name,
+        platformId: platform._id,
         lastMessageTime: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Active in last 30 days
       })
     ]);
@@ -440,7 +508,7 @@ export const handlePlatformWebhook = async (req, res) => {
         if (data.externalUserId && data.email) {
           const user = await User.findOne({
             externalUserId: data.externalUserId,
-            platformName: platform.name
+            platformId: platform._id
           });
 
           if (user) {
@@ -456,7 +524,7 @@ export const handlePlatformWebhook = async (req, res) => {
       case 'user.deleted':
         if (data.externalUserId) {
           await User.findOneAndUpdate(
-            { externalUserId: data.externalUserId, platformName: platform.name },
+            { externalUserId: data.externalUserId, platformId: platform._id },
             { status: 'INACTIVE' }
           );
         }
