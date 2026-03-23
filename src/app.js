@@ -32,6 +32,7 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'http://localhost:5173', // Frontend Vite dev server
   'http://127.0.0.1:5173',
+  'https://Vfx247.club', // Add your production domain
 ];
 
 app.use(

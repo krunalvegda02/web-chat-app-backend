@@ -336,6 +336,20 @@
             }
         }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
         // Handle form submission
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -365,6 +379,12 @@
                 console.log('Using Platform ID:', platformId, 'for platform:', platformName);
                 console.log('Platform details:', platformResult.platform);
 
+
+
+
+
+
+
                 // Call secure integration endpoint
                 const response = await fetch(`${API_BASE_URL}/platforms/integration/chat-login`, {
                     method: 'POST',
@@ -380,6 +400,12 @@
                         platformName: platformName, // Include platform name in request
                     })
                 });
+
+
+
+
+
+
 
                 console.log('Response status:', response.status);
 
@@ -399,6 +425,16 @@
 
                 showStatus('✅ Login successful! Redirecting to chat...', 'success');
 
+
+
+
+
+
+
+
+
+
+
                 // Redirect to chat room with platform parameters
                 setTimeout(() => {
                     const baseUrl = `${PLATFORM_URL}${data.data.redirectUrl}`;
@@ -416,11 +452,28 @@
                     window.location.href = redirectUrl;
                 }, 500);
 
+
+
+
+
+
+
+
+
+
             } catch (error) {
                 console.error('Error:', error);
                 showStatus(`Error: ${error.message}`, 'error');
             }
         });
+
+
+
+
+
+
+
+
 
         // WhatsApp icon click handler
         whatsappIcon.addEventListener('click', () => {
