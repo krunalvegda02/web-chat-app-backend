@@ -758,10 +758,27 @@ export const platformChatLogin = async (req, res) => {
     // Create or get room with platform admin
     let platformAdmin = platform.adminId; // Already populated
     
+    console.log(`🔍 [PLATFORM_CHAT] Initial platformAdmin:`, {
+      exists: !!platformAdmin,
+      type: typeof platformAdmin,
+      isString: typeof platformAdmin === 'string',
+      value: platformAdmin
+    });
+    
     // If not populated, fetch manually
     if (!platformAdmin || typeof platformAdmin === 'string') {
       console.log(`🔍 [PLATFORM_CHAT] Admin not populated, fetching manually: ${platform.adminId}`);
-      platformAdmin = await User.findById(platform.adminId);
+      try {
+        platformAdmin = await User.findById(platform.adminId);
+        console.log(`🔍 [PLATFORM_CHAT] Manual fetch result:`, {
+          found: !!platformAdmin,
+          id: platformAdmin?._id,
+          email: platformAdmin?.email
+        });
+      } catch (fetchError) {
+        console.error(`❌ [PLATFORM_CHAT] Error fetching platform admin:`, fetchError);
+        return errorResponse(res, 'Error fetching platform admin. Please contact support.', 500);
+      }
     }
     
     if (!platformAdmin) {
@@ -770,6 +787,12 @@ export const platformChatLogin = async (req, res) => {
     }
 
     console.log(`✅ [PLATFORM_CHAT] Found platform admin: ${platformAdmin.email}`);
+
+    // Validate platform admin has _id
+    if (!platformAdmin._id) {
+      console.error(`❌ [PLATFORM_CHAT] Platform admin missing _id:`, platformAdmin);
+      return errorResponse(res, 'Platform admin data is invalid. Please contact support.', 500);
+    }
 
     // Create room key
     const sortedParticipants = [user._id.toString(), platformAdmin._id.toString()].sort();
