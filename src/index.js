@@ -30,10 +30,40 @@ const startServer = async () => {
     // Create HTTP server ONCE
     server = http.createServer(app);
 
-    // Attach Socket.IO
+    // Attach Socket.IO with proper CORS
     io = new Server(server, {
       cors: {
-        origin: true, // Allow all origins for testing
+        origin: (origin, callback) => {
+          const allowedOrigins = [
+            process.env.CORS_ORIGIN,
+            'http://localhost:5500',
+            'http://localhost:5501',
+            'http://127.0.0.1:5501',
+            'http://localhost:3000',
+            'http://127.0.0.1:3000',
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+            'http://rrrpay.co/',
+            'https://vfx247.club',
+            'http://212.90.120.17/',
+            'http://212.90.120.17',
+            'https://212.90.120.17/',
+            'https://212.90.120.17'
+          ].filter(Boolean);
+          
+          // Allow requests with no origin
+          if (!origin) {
+            return callback(null, true);
+          }
+          
+          // Check if origin is allowed
+          if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+          }
+          
+          console.warn(`❌ [SOCKET_CORS] Rejected origin: ${origin}`);
+          callback(new Error('CORS policy violation'));
+        },
         credentials: true,
         methods: ["GET", "POST"],
       },

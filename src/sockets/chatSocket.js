@@ -192,15 +192,33 @@ export const registerChatSocket = (io) => {
 
     // ========== AUTHENTICATION ==========
     const origin = socket.handshake.headers.origin;
-    console.log(`🔍 [CORS] Origin: ${origin}`);
+    console.log(`🔍 [SOCKET_AUTH] Origin: ${origin}`);
     
-    // Allow all origins for testing - remove restrictive CORS check
-    // const allowedOrigins = process.env.CORS_ORIGIN?.split(',') || [];
-    // if (origin && !allowedOrigins.includes(origin)) {
-    //   console.warn(`❌ [CORS] Invalid origin: ${origin}`);
-    //   socket.disconnect(true);
-    //   return;
-    // }
+    // Define allowed origins for Socket.IO
+    const allowedOrigins = [
+      process.env.CORS_ORIGIN,
+      'http://localhost:5500',
+      'http://localhost:5501', 
+      'http://127.0.0.1:5501',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://rrrpay.co/',
+      'https://vfx247.club',
+      'http://212.90.120.17/',
+      'http://212.90.120.17',
+      'https://212.90.120.17/',
+      'https://212.90.120.17'
+    ].filter(Boolean);
+
+    // Check origin (allow no origin for mobile apps)
+    if (origin && !allowedOrigins.includes(origin)) {
+      console.warn(`❌ [SOCKET_CORS] Invalid origin: ${origin}`);
+      console.log(`🔍 [SOCKET_CORS] Allowed origins:`, allowedOrigins);
+      socket.disconnect(true);
+      return;
+    }
 
     const token = socket.handshake.auth.token;
     if (!token) {

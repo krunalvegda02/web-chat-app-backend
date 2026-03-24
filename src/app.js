@@ -38,11 +38,29 @@ const allowedOrigins = [
   'http://212.90.120.17',  // Without trailing slash
   'https://212.90.120.17/', // HTTPS with trailing slash
   'https://212.90.120.17'   // HTTPS without trailing slash
-];
+].filter(Boolean); // Remove undefined values
 
 app.use(
   cors({
-    origin: true, // Allow all origins for testing
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, Postman, etc.)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      // Log rejected origins for debugging
+      console.warn(`❌ [CORS] Rejected origin: ${origin}`);
+      console.log(`🔍 [CORS] Allowed origins:`, allowedOrigins);
+      
+      const error = new Error(`CORS policy violation: Origin ${origin} not allowed`);
+      error.status = 403;
+      callback(error);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
@@ -61,15 +79,24 @@ app.use(
   })
 );
 
-// Manual CORS headers as fallback
+// Manual CORS headers as fallback (only for allowed origins)
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+  const origin = req.headers.origin;
+  
+  // Only add CORS headers for allowed origins
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+  }
   
   if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
+    if (!origin || allowedOrigins.includes(origin)) {
+      res.sendStatus(200);
+    } else {
+      res.sendStatus(403);
+    }
   } else {
     next();
   }
@@ -98,14 +125,21 @@ app.use((req, res, next) => {
   next();
 });
 
-// Global OPTIONS handler for all routes
+// Global OPTIONS handler for allowed origins only
 app.options('*', (req, res) => {
-  console.log(`🔧 [GLOBAL_OPTIONS] Handling OPTIONS for: ${req.path}`);
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.sendStatus(200);
+  const origin = req.headers.origin;
+  console.log(`🔧 [GLOBAL_OPTIONS] Handling OPTIONS for: ${req.path} from origin: ${origin}`);
+  
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.sendStatus(200);
+  } else {
+    console.warn(`❌ [GLOBAL_OPTIONS] Rejected origin: ${origin}`);
+    res.sendStatus(403);
+  }
 });
 
 // Test CORS endpoint

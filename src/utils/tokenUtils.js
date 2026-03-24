@@ -63,7 +63,22 @@ const saveRefreshToken = async (userId, ipAddress = null, userAgent = null) => {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     try {
-        // Use atomic operation to avoid version conflicts
+        // First, clean up expired tokens
+        await User.findByIdAndUpdate(
+            userId,
+            {
+                $pull: {
+                    refreshTokens: {
+                        $or: [
+                            { expiresAt: { $lt: new Date() } }, // Remove expired
+                            { revokedAt: { $exists: true } }    // Remove revoked
+                        ]
+                    }
+                }
+            }
+        );
+
+        // Then add the new token and limit to 5
         const result = await User.findByIdAndUpdate(
             userId,
             {
@@ -78,14 +93,6 @@ const saveRefreshToken = async (userId, ipAddress = null, userAgent = null) => {
                         }],
                         $slice: -5 // Keep only last 5 tokens
                     }
-                },
-                $pull: {
-                    refreshTokens: {
-                        $or: [
-                            { expiresAt: { $lt: new Date() } }, // Remove expired
-                            { revokedAt: { $exists: true } }    // Remove revoked
-                        ]
-                    }
                 }
             },
             { new: true }
@@ -98,16 +105,27 @@ const saveRefreshToken = async (userId, ipAddress = null, userAgent = null) => {
         return token;
     } catch (error) {
         console.error('Error saving refresh token:', error);
-        // Fallback to original method if atomic operation fails
+        // Simple fallback - just add the token without cleanup
         try {
-            const user = await User.findById(userId);
-            if (!user) {
+            const result = await User.findByIdAndUpdate(
+                userId,
+                {
+                    $push: {
+                        refreshTokens: {
+                            token,
+                            expiresAt,
+                            ipAddress,
+                            userAgent,
+                            createdAt: new Date()
+                        }
+                    }
+                },
+                { new: true }
+            );
+
+            if (!result) {
                 throw new Error(MESSAGE.USER_NOT_FOUND);
             }
-
-            // Add token (auto-cleans via method)
-            user.addRefreshToken(token, expiresAt, ipAddress, userAgent);
-            await user.save();
 
             return token;
         } catch (fallbackError) {

@@ -667,19 +667,28 @@ export const platformChatLogin = async (req, res) => {
       // For test API key, find platform by name from request body
       const { platformName } = req.body;
       if (platformName) {
+        console.log(`🔍 [PLATFORM_CHAT] Looking for platform: ${platformName}`);
         platform = await Platform.findOne({ 
           name: { $regex: new RegExp(`^${platformName}$`, 'i') },
           status: 'ACTIVE' 
-        });
+        }).populate('adminId', 'name email phone role');
+        
         if (!platform) {
           return errorResponse(res, `Platform "${platformName}" not found`, 404);
+        }
+        
+        console.log(`✅ [PLATFORM_CHAT] Found platform: ${platform.name}, adminId: ${platform.adminId}`);
+        
+        if (!platform.adminId) {
+          console.error(`❌ [PLATFORM_CHAT] Platform ${platform.name} has no adminId`);
+          return errorResponse(res, 'Platform admin not configured. Please contact support.', 500);
         }
       } else {
         return errorResponse(res, 'Platform name is required when using test API key', 400);
       }
     } else {
       // Find platform by API key
-      platform = await Platform.findOne({ apiKey, status: 'ACTIVE' });
+      platform = await Platform.findOne({ apiKey, status: 'ACTIVE' }).populate('adminId', 'name email phone role');
       if (!platform) {
         return errorResponse(res, 'Invalid API key', 401);
       }
@@ -747,15 +756,26 @@ export const platformChatLogin = async (req, res) => {
     console.log(`✅ [PLATFORM_CHAT] Generated tokens for user ${email}`);
 
     // Create or get room with platform admin
-    const platformAdmin = await User.findById(platform.adminId);
+    let platformAdmin = platform.adminId; // Already populated
+    
+    // If not populated, fetch manually
+    if (!platformAdmin || typeof platformAdmin === 'string') {
+      console.log(`🔍 [PLATFORM_CHAT] Admin not populated, fetching manually: ${platform.adminId}`);
+      platformAdmin = await User.findById(platform.adminId);
+    }
     
     if (!platformAdmin) {
-      return errorResponse(res, 'Platform admin not found', 404);
+      console.error(`❌ [PLATFORM_CHAT] Platform admin not found for platform ${platformId}, adminId: ${platform.adminId}`);
+      return errorResponse(res, 'Platform admin not found. Please contact support.', 500);
     }
+
+    console.log(`✅ [PLATFORM_CHAT] Found platform admin: ${platformAdmin.email}`);
 
     // Create room key
     const sortedParticipants = [user._id.toString(), platformAdmin._id.toString()].sort();
     const roomKey = `DIRECT_${sortedParticipants.join('_')}`;
+
+    console.log(`🔑 [PLATFORM_CHAT] Creating room with key: ${roomKey}`);
 
     // Check if room exists
     let room = await Room.findOne({ participantKey: roomKey })
