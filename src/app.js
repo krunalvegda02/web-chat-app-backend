@@ -34,43 +34,21 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
   'http://rrrpay.co/',
   'https://vfx247.club', 
-  "http://212.90.120.17"
+  'http://212.90.120.17/'
 ];
 
 app.use(
   cors({
-    origin: true, // Allow all origins for testing
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: [
-      'Origin',
-      'X-Requested-With',
-      'Content-Type',
-      'Accept',
-      'Authorization',
-      'X-API-Key',
-      'Cache-Control',
-      'Pragma'
-    ],
-    exposedHeaders: ['Set-Cookie'],
-    optionsSuccessStatus: 200,
-    preflightContinue: false
   })
 );
-
-// Manual CORS headers as fallback
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
-  
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -88,10 +66,9 @@ app.use(cookieParser());
 
 // Request logging (after rate limiter)
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Origin: ${req.headers.origin}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
-
 
 import registerRoutes from "./routes/index.route.js";
 registerRoutes(app);
