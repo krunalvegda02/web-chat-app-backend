@@ -821,15 +821,29 @@ export const platformChatLogin = async (req, res) => {
       });
 
       try {
+        console.log(`💾 [PLATFORM_CHAT] Saving room...`);
         await room.save();
+        console.log(`✅ [PLATFORM_CHAT] Room saved successfully: ${room._id}`);
+        
+        console.log(`🔄 [PLATFORM_CHAT] Populating room participants...`);
         await room.populate('participants.userId', 'name email avatar role phone');
+        console.log(`✅ [PLATFORM_CHAT] Room populated successfully`);
+        
         console.log(`✅ [PLATFORM_CHAT] Created new room: ${room._id}`);
       } catch (error) {
+        console.error(`❌ [PLATFORM_CHAT] Room creation error:`, error);
         if (error.code === 11000) {
           // Room already exists (race condition)
+          console.log(`⚠️ [PLATFORM_CHAT] Room already exists due to race condition, fetching existing room`);
           room = await Room.findOne({ participantKey: roomKey })
             .populate('participants.userId', 'name email avatar role phone')
             .populate('lastMessage');
+          
+          if (!room) {
+            console.error(`❌ [PLATFORM_CHAT] Failed to fetch existing room after race condition`);
+            return errorResponse(res, 'Failed to create or fetch room. Please try again.', 500);
+          }
+          
           console.log(`⚠️ [PLATFORM_CHAT] Room already exists: ${room._id}`);
         } else {
           throw error;
@@ -838,6 +852,14 @@ export const platformChatLogin = async (req, res) => {
     } else {
       console.log(`✅ [PLATFORM_CHAT] Found existing room: ${room._id}`);
     }
+
+    // Final validation before returning
+    if (!room || !room._id) {
+      console.error(`❌ [PLATFORM_CHAT] Room is null or missing _id after creation/fetch:`, room);
+      return errorResponse(res, 'Failed to create or retrieve room. Please contact support.', 500);
+    }
+
+    console.log(`🎯 [PLATFORM_CHAT] Final room validation passed: ${room._id}`);
 
     return successResponse(res, {
       user: user.toJSON(),
