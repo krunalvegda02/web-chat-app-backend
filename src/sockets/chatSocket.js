@@ -192,13 +192,15 @@ export const registerChatSocket = (io) => {
 
     // ========== AUTHENTICATION ==========
     const origin = socket.handshake.headers.origin;
-    const allowedOrigins = process.env.CORS_ORIGIN?.split(',') || [];
-
-    if (origin && !allowedOrigins.includes(origin)) {
-      console.warn(`❌ [CORS] Invalid origin: ${origin}`);
-      socket.disconnect(true);
-      return;
-    }
+    console.log(`🔍 [CORS] Origin: ${origin}`);
+    
+    // Allow all origins for testing - remove restrictive CORS check
+    // const allowedOrigins = process.env.CORS_ORIGIN?.split(',') || [];
+    // if (origin && !allowedOrigins.includes(origin)) {
+    //   console.warn(`❌ [CORS] Invalid origin: ${origin}`);
+    //   socket.disconnect(true);
+    //   return;
+    // }
 
     const token = socket.handshake.auth.token;
     if (!token) {
