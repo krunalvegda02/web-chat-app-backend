@@ -34,6 +34,7 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
   'http://rrrpay.co/',
   'https://vfx247.club', 
+  "http://212.90.120.17"
 ];
 
 app.use(
@@ -87,9 +88,10 @@ app.use(cookieParser());
 
 // Request logging (after rate limiter)
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Origin: ${req.headers.origin}`);
   next();
 });
+
 
 import registerRoutes from "./routes/index.route.js";
 registerRoutes(app);
