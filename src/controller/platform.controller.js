@@ -657,6 +657,164 @@ export const updateUserStatus = async (req, res) => {
 };
 
 // ============================================
+// GENERATE SESSION TOKEN (server-to-server)
+// External platform calls this with API key to get a short-lived session token
+// The session token is what goes in the URL — API key never touches the browser
+// ============================================
+export const generateSessionToken = async (req, res) => {
+  try {
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey || !apiKey.startsWith('pk_')) {
+      return errorResponse(res, 'Valid API key is required', 401);
+    }
+
+    const { name, email, phone, externalUserId } = req.body;
+    if (!phone) return errorResponse(res, 'Phone is required', 400);
+
+    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
+    const platform = await Platform.findOne({ apiKey: hashedKey, status: 'ACTIVE' });
+    if (!platform) return errorResponse(res, 'Invalid or inactive API key', 401);
+
+    // Generate a short-lived single-use session token
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+    // Clean expired tokens first
+    platform.sessionTokens = (platform.sessionTokens || []).filter(t => t.expiresAt > new Date() && !t.usedAt);
+
+    platform.sessionTokens.push({
+      token: sessionToken,
+      expiresAt,
+      usedAt: null,
+      userData: { name, email, phone, externalUserId }
+    });
+
+    await platform.save();
+
+    console.log(`✅ [SESSION_TOKEN] Generated session token for platform ${platform.name}`);
+
+    return successResponse(res, {
+      sessionToken,
+      expiresAt,
+      platformId: platform._id,
+    }, 'Session token generated. Use this in the chat URL instead of the API key.');
+  } catch (error) {
+    console.error('Generate session token error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// ============================================
+// CONSUME SESSION TOKEN (browser calls this)
+// Validates the session token from URL, marks it used, performs login
+// ============================================
+export const consumeSessionToken = async (req, res) => {
+  try {
+    const { sessionToken } = req.body;
+    if (!sessionToken) return errorResponse(res, 'Session token is required', 400);
+
+    // Find platform with this token
+    const platform = await Platform.findOne({
+      'sessionTokens.token': sessionToken,
+      status: 'ACTIVE'
+    }).populate('adminId', 'name email phone role');
+
+    if (!platform) return errorResponse(res, 'Invalid session token', 401);
+
+    const tokenEntry = platform.sessionTokens.find(t => t.token === sessionToken);
+
+    if (!tokenEntry) return errorResponse(res, 'Session token not found', 401);
+    if (tokenEntry.usedAt) return errorResponse(res, 'Session token already used', 401);
+    if (tokenEntry.expiresAt < new Date()) return errorResponse(res, 'Session token expired', 401);
+
+    // Mark token as used immediately (single-use)
+    tokenEntry.usedAt = new Date();
+    await platform.save();
+
+    // Now perform the actual login using the stored userData
+    const { name, email, phone, externalUserId } = tokenEntry.userData;
+    const normalizedPhone = phone.replace(/\D/g, '');
+    const finalEmail = email || `user_${normalizedPhone}@${platform.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`;
+
+    let user = await User.findOne({
+      $and: [
+        { $or: [{ platformId: platform._id }, { platformName: platform.name }] },
+        { $or: [{ phone: normalizedPhone }, ...(email ? [{ email }] : [])] }
+      ]
+    });
+
+    let isNewUser = false;
+    if (!user) {
+      user = new User({
+        name: name?.trim() || `User_${normalizedPhone}`,
+        email: finalEmail,
+        phone: normalizedPhone,
+        password: 'TempPassword@123',
+        role: 'USER',
+        platformId: platform._id,
+        platformName: platform.name,
+        status: 'ACTIVE',
+        phoneVerified: false,
+        externalUserId: externalUserId || null,
+        contacts: [],
+        blockedUsers: [],
+      });
+      await user.save();
+      isNewUser = true;
+    } else {
+      await User.findByIdAndUpdate(user._id, {
+        $set: { platformId: platform._id, platformName: platform.name, refreshTokens: [] }
+      });
+    }
+
+    const accessToken = generateAccessToken(user._id, user.email, user.role, platform.name);
+    const refreshToken = await saveRefreshToken(user._id, req.ip || '0.0.0.0', req.headers['user-agent'] || 'platform');
+
+    // Get or create room with platform admin
+    const platformAdmin = platform.adminId;
+    const sortedParticipants = [user._id.toString(), platformAdmin._id.toString()].sort();
+    const roomKey = `DIRECT_PLATFORM_${platform._id}_${sortedParticipants.join('_')}`;
+
+    let room = await Room.findOne({ participantKey: roomKey });
+    if (!room) {
+      room = new Room({
+        name: `Chat - ${user.name} & ${platformAdmin.name}`,
+        type: 'DIRECT',
+        platformId: platform._id,
+        createdVia: 'direct',
+        participantKey: roomKey,
+        participants: [
+          { userId: user._id, role: 'INITIATOR' },
+          { userId: platformAdmin._id, role: 'PARTICIPANT' }
+        ].sort((a, b) => a.userId.toString().localeCompare(b.userId.toString())),
+        lastMessageTime: new Date()
+      });
+      try {
+        await room.save();
+      } catch (e) {
+        if (e.code === 11000) {
+          room = await Room.findOne({ participantKey: roomKey });
+        } else throw e;
+      }
+    }
+
+    console.log(`✅ [SESSION_TOKEN] Consumed token, logged in user ${normalizedPhone} for platform ${platform.name}`);
+
+    return successResponse(res, {
+      user: user.toJSON(),
+      accessToken,
+      refreshToken,
+      isNewUser,
+      room: { _id: room._id, name: room.name, type: room.type },
+      redirectUrl: `/user/chats/${room._id}`,
+    }, 'Login successful', 200);
+  } catch (error) {
+    console.error('Consume session token error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// ============================================
 // PLATFORM CHAT LOGIN - Create/Get User & Generate Token & Create/Get Room
 // ⚠️ LEGACY ENDPOINT - Use /api/v1/platforms/integration/chat-login for new integrations
 // ============================================

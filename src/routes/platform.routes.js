@@ -20,6 +20,8 @@ import {
   generateApiKey,
   getApiKey,
   revokeApiKey,
+  generateSessionToken,
+  consumeSessionToken,
 } from '../controller/platform.controller.js';
 import {verifyJWT as authenticate } from '../middlewares/auth.middleware.js';
 import { requireRole } from '../middlewares/role.middleware.js';
@@ -82,6 +84,11 @@ router.options('/integration/*', (req, res) => {
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(200);
 });
+
+// Secure session token exchange (server-to-server: API key → session token)
+router.post('/session-token', generateSessionToken);
+// Browser consumes session token (no API key in URL)
+router.post('/session-login', consumeSessionToken);
 
 // Secure chat login endpoint - use existing platformChatLogin
 router.post('/integration/chat-login', platformChatLogin);

@@ -133,6 +133,12 @@ const platformSchema = new mongoose.Schema({
   apiKeyCreatedAt: {
     type: Date,
   },
+  sessionTokens: [{
+    token: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+    usedAt: { type: Date, default: null },
+    userData: { type: mongoose.Schema.Types.Mixed },
+  }],
   webhookUrl: {
     type: String,
     trim: true,
