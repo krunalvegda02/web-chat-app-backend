@@ -446,12 +446,13 @@ export const sendMessageWithMedia = async (req, res, next) => {
         const room = await Room.findById(roomId);
         if (!room) return errorResponse(res, MESSAGE.ROOM_NOT_FOUND, 404);
 
+        // ✅ Only room participants can send messages
         const isParticipant = room.participants.some(
             p => p.userId && req.user._id && p.userId.toString() === req.user._id.toString()
         );
 
-        if (!isParticipant && req.user.role !== 'SUPER_ADMIN') {
-            return errorResponse(res, MESSAGE.UNAUTHORIZED, 403);
+        if (!isParticipant) {
+            return errorResponse(res, 'Only room members can send messages', 403);
         }
 
         // ✅ Check if recipient is online to set initial status

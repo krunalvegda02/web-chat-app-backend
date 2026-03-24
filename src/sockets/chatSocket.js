@@ -474,10 +474,21 @@ export const registerChatSocket = (io) => {
         }
 
         const room = await Room.findById(roomId).populate('participants.userId', 'name email avatar role');
-        const access = verifyRoomAccess(room, userId, userRole);
+        if (!room) {
+          return socket.emit('error', { message: 'Room not found' });
+        }
 
-        if (!access.valid) {
-          return socket.emit('error', { message: access.error });
+        // ✅ Only room participants can send messages (no admin exceptions)
+        const isParticipant = room.participants.some(p => {
+          if (!p.userId) return false;
+          const userId_str = userId.toString ? userId.toString() : userId;
+          const participantId = p.userId._id || p.userId;
+          const participantId_str = participantId.toString ? participantId.toString() : participantId;
+          return participantId_str === userId_str;
+        });
+
+        if (!isParticipant) {
+          return socket.emit('error', { message: 'Only room members can send messages' });
         }
 
         const recipientIds = room.participants
