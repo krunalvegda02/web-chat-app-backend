@@ -134,6 +134,12 @@ export const createPlatform = async (req, res) => {
       },
     });
 
+    // Auto-generate API key on creation
+    const apiKey = `pk_${crypto.randomBytes(32).toString('hex')}`;
+    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
+    platform.apiKey = hashedKey;
+    platform.apiKeyCreatedAt = new Date();
+
     await platform.save();
 
     // Update admin user with platformId
@@ -146,6 +152,7 @@ export const createPlatform = async (req, res) => {
       platform: {
         ...platform.toObject(),
         admin: platform.adminId,
+        apiKey, // Return plain key once on creation
       },
     }, 'Platform created successfully', 201);
   } catch (error) {
@@ -661,38 +668,15 @@ export const platformChatLogin = async (req, res) => {
       return errorResponse(res, 'API key is required', 401);
     }
 
-    // For testing, allow test-api-key
-    let platform = null;
-    if (apiKey === 'test-api-key') {
-      // For test API key, find platform by name from request body
-      const { platformName } = req.body;
-      console.log("platform name", platformName)
-      if (platformName) {
-        console.log(`🔍 [PLATFORM_CHAT] Looking for platform: ${platformName}`);
-        platform = await Platform.findOne({ 
-          name: { $regex: new RegExp(`^${platformName}$`, 'i') },
-          status: 'ACTIVE' 
-        }).populate('adminId', 'name email phone role');
-        
-        if (!platform) {
-          return errorResponse(res, `Platform "${platformName}" not found`, 404);
-        }
-        
-        console.log(`✅ [PLATFORM_CHAT] Found platform: ${platform.name}, adminId: ${platform.adminId}`);
-        
-        if (!platform.adminId) {
-          console.error(`❌ [PLATFORM_CHAT] Platform ${platform.name} has no adminId`);
-          return errorResponse(res, 'Platform admin not configured. Please contact support.', 500);
-        }
-      } else {
-        return errorResponse(res, 'Platform name is required when using test API key', 400);
-      }
-    } else {
-      // Find platform by API key
-      platform = await Platform.findOne({ apiKey, status: 'ACTIVE' }).populate('adminId', 'name email phone role');
-      if (!platform) {
-        return errorResponse(res, 'Invalid API key', 401);
-      }
+    if (!apiKey.startsWith('pk_')) {
+      return errorResponse(res, 'Invalid API key format', 401);
+    }
+
+    // Hash the incoming key and look up by hash
+    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
+    const platform = await Platform.findOne({ apiKey: hashedKey, status: 'ACTIVE' }).populate('adminId', 'name email phone role');
+    if (!platform) {
+      return errorResponse(res, 'Invalid or inactive API key', 401);
     }
 
     const { name, email, phone, password, externalUserId } = req.body;
@@ -903,9 +887,10 @@ export const generateApiKey = async (req, res) => {
 
     // Generate a secure API key
     const apiKey = `pk_${crypto.randomBytes(32).toString('hex')}`;
+    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
     
-    // Save API key to platform
-    platform.apiKey = apiKey;
+    // Save hashed key — plain key is returned once and never stored
+    platform.apiKey = hashedKey;
     platform.apiKeyCreatedAt = new Date();
     await platform.save();
 
@@ -942,11 +927,12 @@ export const getApiKey = async (req, res) => {
       return errorResponse(res, 'No API key found. Please generate one first.', 404);
     }
 
+    // We only store the hash — confirm key exists but cannot return the plain key
     return successResponse(res, {
-      apiKey: platform.apiKey,
+      hasApiKey: true,
       platformId,
       createdAt: platform.apiKeyCreatedAt
-    }, 'API key retrieved successfully');
+    }, 'API key exists. The plain key was shown once at creation time.');
 
   } catch (error) {
     console.error('Get API key error:', error);

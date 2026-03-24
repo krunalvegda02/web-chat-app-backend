@@ -35,13 +35,14 @@ router.options('*', (req, res) => {
   res.sendStatus(200);
 });
 
-// Debug endpoints
-router.get('/debug/jwt-secret', debugJwtSecret);
-router.post('/debug/verify-token', verifyTokenDebug);
+// Debug endpoints — Super Admin only
+router.get('/debug/jwt-secret', authenticate, requireRole(['SUPER_ADMIN']), debugJwtSecret);
+router.post('/debug/verify-token', authenticate, requireRole(['SUPER_ADMIN']), verifyTokenDebug);
 
 // Public endpoints (no authentication required)
 router.get('/public/list', getPublicPlatforms);
-router.post('/create-user', createPlatformUser);
+// /create-user requires a valid API key — handled inside the controller
+router.post('/create-user', platformChatLogin); // reuses API key validation
 router.post('/chat-login', platformChatLogin);
 
 // Migration endpoint (one-time fix)

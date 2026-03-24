@@ -1,4 +1,3 @@
-import axios from 'axios';
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
@@ -9,15 +8,7 @@ import { uploadOnCloudinary } from '../utils/cloudinary.js';
 // CONFIGURATION
 // ============================================================
 
-const AZURE_TRANSLATOR_KEY = process.env.AZURE_TRANSLATOR_KEY;
-const AZURE_TRANSLATOR_REGION = process.env.AZURE_TRANSLATOR_REGION || 'centralindia';
-const AZURE_TRANSLATOR_ENDPOINT = 'https://api.cognitive.microsofttranslator.com';
-
-const AZURE_TTS_KEY = process.env.AZURE_TTS_KEY;
-const AZURE_TTS_REGION = process.env.AZURE_TTS_REGION || 'centralindia';
-
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
 const TARGET_LANGUAGE = 'hi'; // Hindi
 
 // ============================================================
@@ -25,7 +16,7 @@ const TARGET_LANGUAGE = 'hi'; // Hindi
 // ============================================================
 
 /**
- * Translates text to the target language using Azure Translator.
+ * Translates text to the target language using OpenAI.
  * @param {string} text - The text to translate.
  * @param {string} targetLang - Target language code (default: 'hi' for Hindi).
  * @returns {{ translatedText: string, detectedLanguage: string }}
@@ -35,40 +26,38 @@ export async function translateText(text, targetLang = TARGET_LANGUAGE) {
         return null;
     }
 
-    // 1. Try Azure Translator first
-    if (AZURE_TRANSLATOR_KEY) {
-        try {
-            const response = await axios.post(
-                `${AZURE_TRANSLATOR_ENDPOINT}/translate`,
-                [{ text: text.trim() }],
-                {
-                    params: {
-                        'api-version': '3.0',
-                        to: targetLang,
-                    },
-                    headers: {
-                        'Ocp-Apim-Subscription-Key': AZURE_TRANSLATOR_KEY,
-                        'Ocp-Apim-Subscription-Region': AZURE_TRANSLATOR_REGION,
-                        'Content-Type': 'application/json',
-                    },
-                    timeout: 10000,
-                }
-            );
-
-            const result = response.data[0];
-            const detectedLanguage = result.detectedLanguage?.language || 'unknown';
-            const translatedText = result.translations[0]?.text || text;
-
-            console.log(`✅ [TRANSLATE:AZURE] ${detectedLanguage} → ${targetLang}: "${text.substring(0, 30)}..."`);
-            return { translatedText, detectedLanguage, skipped: false };
-        } catch (error) {
-            console.error('❌ [TRANSLATE:AZURE] Error:', error.message);
-            return { translatedText: text, detectedLanguage: 'unknown', skipped: true };
-        }
+    if (!OPENAI_API_KEY) {
+        console.warn('⚠️ [TRANSLATE] OpenAI API key missing');
+        return { translatedText: text, detectedLanguage: 'unknown', skipped: true };
     }
 
-    console.warn('⚠️ [TRANSLATE] Azure Translator key missing');
-    return { translatedText: text, detectedLanguage: 'unknown', skipped: true };
+    try {
+        const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+        
+        const response = await openai.chat.completions.create({
+            model: 'gpt-3.5-turbo',
+            messages: [
+                {
+                    role: 'system',
+                    content: `You are a translation assistant. Translate the given text to ${targetLang === 'hi' ? 'Hindi' : targetLang}. Only return the translated text, nothing else. If the text is already in the target language, return it as is.`
+                },
+                {
+                    role: 'user',
+                    content: text.trim()
+                }
+            ],
+            max_tokens: 1000,
+            temperature: 0.3
+        });
+
+        const translatedText = response.choices[0]?.message?.content?.trim() || text;
+        
+        console.log(`✅ [TRANSLATE:OPENAI] → ${targetLang}: "${text.substring(0, 30)}..."`);
+        return { translatedText, detectedLanguage: 'auto', skipped: false };
+    } catch (error) {
+        console.error('❌ [TRANSLATE:OPENAI] Error:', error.message);
+        return { translatedText: text, detectedLanguage: 'unknown', skipped: true };
+    }
 }
 
 // ============================================================
@@ -103,6 +92,7 @@ export async function transcribeAudio(audioUrl) {
     try {
         // 1. Download the audio file directly into a buffer
         console.log(`📥 [WHISPER] Downloading audio from: ${audioUrl.substring(0, 80)}...`);
+        const axios = (await import('axios')).default;
         let audioResponse = await axios.get(audioUrl, {
             responseType: 'arraybuffer',
             timeout: 30000,
@@ -163,57 +153,36 @@ export async function transcribeAudio(audioUrl) {
 // ============================================================
 
 /**
- * Converts Hindi text to speech using Azure TTS and uploads to Cloudinary.
- * @param {string} text - Hindi text to speak.
- * @param {string} voiceName - Azure TTS voice name.
+ * Converts text to speech using OpenAI TTS and uploads to Cloudinary.
+ * @param {string} text - Text to speak.
+ * @param {string} voice - OpenAI TTS voice name (default: 'alloy').
  * @returns {{ audioUrl: string }}
  */
-export async function textToSpeech(text, voiceName = 'hi-IN-SwaraNeural') {
+export async function textToSpeech(text, voice = 'aria') {
     if (!text || text.trim().length === 0) {
+        return null;
+    }
+
+    if (!OPENAI_API_KEY) {
+        console.warn('⚠️ [TTS] OpenAI API key missing');
         return null;
     }
 
     const tempFilePath = path.join(os.tmpdir(), `tts_${Date.now()}.mp3`);
 
     try {
-        let audioBuffer;
+        console.log(`🎤 [TTS:OPENAI] Synthesizing speech...`);
+        const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+        
+        const response = await openai.audio.speech.create({
+            model: 'tts-1',
+            voice: voice,
+            input: text.trim(),
+            response_format: 'mp3'
+        });
 
-        // 1. Try Azure TTS first
-        if (AZURE_TTS_KEY) {
-            try {
-                console.log(`🎤 [TTS:AZURE] Synthesizing speech...`);
-                const ssml = `
-                  <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='hi-IN'>
-                    <voice name='${voiceName}'>
-                      ${escapeXml(text)}
-                    </voice>
-                  </speak>
-                `.trim();
-
-                const response = await axios.post(
-                    `https://${AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`,
-                    ssml,
-                    {
-                        headers: {
-                            'Ocp-Apim-Subscription-Key': AZURE_TTS_KEY,
-                            'Content-Type': 'application/ssml+xml',
-                            'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3',
-                        },
-                        responseType: 'arraybuffer',
-                        timeout: 30000,
-                    }
-                );
-                audioBuffer = Buffer.from(response.data);
-            } catch (error) {
-                console.error('❌ [TTS:AZURE] Error:', error.message);
-            }
-        }
-
-        if (!audioBuffer) {
-            console.warn('⚠️ [TTS] Azure TTS synthesis failed or key missing');
-            return null;
-        }
-
+        const audioBuffer = Buffer.from(await response.arrayBuffer());
+        
         // Save and upload
         fs.writeFileSync(tempFilePath, audioBuffer);
         console.log(`💾 [TTS] Saved temp audio: ${tempFilePath} (${audioBuffer.length} bytes)`);
@@ -305,15 +274,6 @@ export async function translateVoiceMessage(audioUrl) {
 // ============================================================
 // HELPERS
 // ============================================================
-
-function escapeXml(text) {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-}
 
 export default {
     translateText,

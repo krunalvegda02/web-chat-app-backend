@@ -455,6 +455,7 @@ export const sendMessageWithMedia = async (req, res, next) => {
             return errorResponse(res, 'Only room members can send messages', 403);
         }
 
+        // 
         // ✅ Check if recipient is online to set initial status
         const io = req.app.get('io');
         let recipientOnline = false;
