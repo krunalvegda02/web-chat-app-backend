@@ -3,17 +3,17 @@ import MESSAGE from "../constants/message.js";
 
 export const createAdmin = async () => {
     try {
-        const admin = await User.findOne({ email: "admin@gmail.com" });
+        const admin = await User.findOne({ email: "admin@vfx247.com" });
 
         if (!admin) {
-            console.log("Admin Not Registered, Creating Admin: Email = admin@gmail.com, Password: 123456");
+            console.log("Admin Not Registered, Creating Admin: Email = admin@vfx247.com");
 
             const registerAdmin = await User.create({
-                email: "admin@gmail.com",
-                password: "123456",
+                email: "admin@vfx247.com",
+                password: "admin@5656@",
                 role: "SUPER_ADMIN",
                 name: "Super Admin",
-                phone: "1234567890",
+                phone: "9999999999",
                 status: "ACTIVE"
             });
 
