@@ -1,6 +1,7 @@
 import Platform from '../models/platform.model.js';
 import User from '../models/user.model.js';
 import Room from '../models/room.model.js';
+import crypto from 'crypto';
 import { successResponse, errorResponse } from '../../src/utils/response.js';
 import { generateAccessToken, saveRefreshToken } from '../utils/tokenUtils.js';
 
@@ -654,16 +655,41 @@ export const updateUserStatus = async (req, res) => {
 // ============================================
 export const platformChatLogin = async (req, res) => {
   try {
-    const { platformId, name, email, phone, password } = req.body;
-
-    if (!platformId || !email || !phone) {
-      return errorResponse(res, 'Platform ID, email, and phone are required', 400);
+    // Validate API Key
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey) {
+      return errorResponse(res, 'API key is required', 401);
     }
 
-    // Check if platform exists
-    const platform = await Platform.findById(platformId);
-    if (!platform) {
-      return errorResponse(res, 'Platform not found', 404);
+    // For testing, allow test-api-key
+    let platform = null;
+    if (apiKey === 'test-api-key') {
+      // For test API key, find platform by name from request body
+      const { platformName } = req.body;
+      if (platformName) {
+        platform = await Platform.findOne({ 
+          name: { $regex: new RegExp(`^${platformName}$`, 'i') },
+          status: 'ACTIVE' 
+        });
+        if (!platform) {
+          return errorResponse(res, `Platform "${platformName}" not found`, 404);
+        }
+      } else {
+        return errorResponse(res, 'Platform name is required when using test API key', 400);
+      }
+    } else {
+      // Find platform by API key
+      platform = await Platform.findOne({ apiKey, status: 'ACTIVE' });
+      if (!platform) {
+        return errorResponse(res, 'Invalid API key', 401);
+      }
+    }
+
+    const { name, email, phone, password, externalUserId } = req.body;
+    const platformId = platform._id;
+
+    if (!email || !phone) {
+      return errorResponse(res, 'Email and phone are required', 400);
     }
 
     const normalizedPhone = phone.replace(/\D/g, '');
@@ -696,6 +722,7 @@ export const platformChatLogin = async (req, res) => {
         phoneVerified: false,
         contacts: [],
         blockedUsers: [],
+        externalUserId: externalUserId || null,
       });
 
       await user.save();
@@ -787,6 +814,106 @@ export const platformChatLogin = async (req, res) => {
 
   } catch (error) {
     console.error('Platform chat login error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// ============================================
+// GENERATE API KEY FOR PLATFORM
+// ============================================
+export const generateApiKey = async (req, res) => {
+  try {
+    const { platformId } = req.params;
+    
+    const platform = await Platform.findById(platformId);
+    if (!platform) {
+      return errorResponse(res, 'Platform not found', 404);
+    }
+
+    // Check authorization - only platform admin or super admin can generate API keys
+    if (req.user.role !== 'SUPER_ADMIN' && req.user._id.toString() !== platform.adminId.toString()) {
+      return errorResponse(res, 'Unauthorized', 403);
+    }
+
+    // Generate a secure API key
+    const apiKey = `pk_${crypto.randomBytes(32).toString('hex')}`;
+    
+    // Save API key to platform
+    platform.apiKey = apiKey;
+    platform.apiKeyCreatedAt = new Date();
+    await platform.save();
+
+    return successResponse(res, {
+      apiKey,
+      platformId,
+      createdAt: platform.apiKeyCreatedAt
+    }, 'API key generated successfully');
+
+  } catch (error) {
+    console.error('Generate API key error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// ============================================
+// GET CURRENT API KEY FOR PLATFORM
+// ============================================
+export const getApiKey = async (req, res) => {
+  try {
+    const { platformId } = req.params;
+    
+    const platform = await Platform.findById(platformId);
+    if (!platform) {
+      return errorResponse(res, 'Platform not found', 404);
+    }
+
+    // Check authorization
+    if (req.user.role !== 'SUPER_ADMIN' && req.user._id.toString() !== platform.adminId.toString()) {
+      return errorResponse(res, 'Unauthorized', 403);
+    }
+
+    if (!platform.apiKey) {
+      return errorResponse(res, 'No API key found. Please generate one first.', 404);
+    }
+
+    return successResponse(res, {
+      apiKey: platform.apiKey,
+      platformId,
+      createdAt: platform.apiKeyCreatedAt
+    }, 'API key retrieved successfully');
+
+  } catch (error) {
+    console.error('Get API key error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// ============================================
+// REVOKE API KEY FOR PLATFORM
+// ============================================
+export const revokeApiKey = async (req, res) => {
+  try {
+    const { platformId } = req.params;
+    
+    const platform = await Platform.findById(platformId);
+    if (!platform) {
+      return errorResponse(res, 'Platform not found', 404);
+    }
+
+    // Check authorization
+    if (req.user.role !== 'SUPER_ADMIN' && req.user._id.toString() !== platform.adminId.toString()) {
+      return errorResponse(res, 'Unauthorized', 403);
+    }
+
+    // Remove API key
+    platform.apiKey = null;
+    platform.apiKeyCreatedAt = null;
+    await platform.save();
+
+    return successResponse(res, null, 'API key revoked successfully');
+
+  } catch (error) {
+    console.error('Revoke API key error:', error);
     return errorResponse(res, error.message, 500);
   }
 };

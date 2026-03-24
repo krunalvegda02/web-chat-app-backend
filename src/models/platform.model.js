@@ -130,6 +130,9 @@ const platformSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  apiKeyCreatedAt: {
+    type: Date,
+  },
   webhookUrl: {
     type: String,
     trim: true,

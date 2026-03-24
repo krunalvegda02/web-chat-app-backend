@@ -17,6 +17,9 @@ import {
   verifyTokenDebug,
   getPlatformTheme,
   updatePlatformTheme,
+  generateApiKey,
+  getApiKey,
+  revokeApiKey,
 } from '../controller/platform.controller.js';
 import {
   generatePlatformApiKey,
@@ -61,6 +64,11 @@ router.patch('/users/:userId/status', authenticate, requireRole(['SUPER_ADMIN', 
 // Platform theme management
 router.get('/:platformId/theme', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getPlatformTheme);
 router.put('/:platformId/theme', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), updatePlatformTheme);
+
+// API Key management
+router.post('/:platformId/api-key/generate', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), generateApiKey);
+router.get('/:platformId/api-key', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getApiKey);
+router.delete('/:platformId/api-key', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), revokeApiKey);
 
 // ============================================
 // PLATFORM INTEGRATION ROUTES (Secure API)
