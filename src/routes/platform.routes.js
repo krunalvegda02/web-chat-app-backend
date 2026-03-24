@@ -21,20 +21,19 @@ import {
   getApiKey,
   revokeApiKey,
 } from '../controller/platform.controller.js';
-import {
-  generatePlatformApiKey,
-  platformIntegrationRateLimit,
-  securePlatformChatLogin,
-  getPlatformUserByExternalId,
-  updatePlatformUser,
-  getPlatformStats,
-  handlePlatformWebhook
-} from '../controller/platform-integration.controller.js';
-import { handleTestApiKey, verifyPlatformApiKeyEnhanced } from '../middlewares/platform-auth.middleware.js';
 import {verifyJWT as authenticate } from '../middlewares/auth.middleware.js';
 import { requireRole } from '../middlewares/role.middleware.js';
 
 const router = express.Router();
+
+// Handle OPTIONS requests for all routes
+router.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
+});
 
 // Debug endpoints
 router.get('/debug/jwt-secret', debugJwtSecret);
@@ -74,48 +73,16 @@ router.delete('/:platformId/api-key', authenticate, requireRole(['SUPER_ADMIN', 
 // PLATFORM INTEGRATION ROUTES (Secure API)
 // ============================================
 
-// Generate API key for platform (Platform Admin only)
-router.post('/:platformId/generate-api-key', 
-  authenticate, 
-  generatePlatformApiKey
-);
+// Handle OPTIONS requests for all integration routes
+router.options('/integration/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
+});
 
-// Apply rate limiting to all integration routes
-router.use('/integration', platformIntegrationRateLimit);
-
-// Secure chat login endpoint
-router.post('/integration/chat-login', 
-  handleTestApiKey,
-  verifyPlatformApiKeyEnhanced,
-  securePlatformChatLogin
-);
-
-// Get user by external ID
-router.get('/integration/users/external/:externalUserId',
-  handleTestApiKey,
-  verifyPlatformApiKeyEnhanced,
-  getPlatformUserByExternalId
-);
-
-// Update platform user
-router.put('/integration/users/:userId',
-  handleTestApiKey,
-  verifyPlatformApiKeyEnhanced,
-  updatePlatformUser
-);
-
-// Get platform statistics
-router.get('/integration/stats',
-  handleTestApiKey,
-  verifyPlatformApiKeyEnhanced,
-  getPlatformStats
-);
-
-// Webhook endpoint for external platforms
-router.post('/integration/webhook',
-  handleTestApiKey,
-  verifyPlatformApiKeyEnhanced,
-  handlePlatformWebhook
-);
+// Secure chat login endpoint - use existing platformChatLogin
+router.post('/integration/chat-login', platformChatLogin);
 
 export default router;
