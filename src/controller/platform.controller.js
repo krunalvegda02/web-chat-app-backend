@@ -815,8 +815,8 @@ export const consumeSessionToken = async (req, res) => {
 };
 
 // ============================================
-// PLATFORM CHAT LOGIN - Create/Get User & Generate Token & Create/Get Room
-// ⚠️ LEGACY ENDPOINT - Use /api/v1/platforms/integration/chat-login for new integrations
+// PLATFORM CHAT LOGIN - Server-to-server only
+// External platform backend calls this with X-API-Key header
 // ============================================
 export const platformChatLogin = async (req, res) => {
   try {
