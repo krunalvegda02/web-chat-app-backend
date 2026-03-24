@@ -37,7 +37,9 @@ const allowedOrigins = [
   'http://212.90.120.17/', // With trailing slash
   'http://212.90.120.17',  // Without trailing slash
   'https://212.90.120.17/', // HTTPS with trailing slash
-  'https://212.90.120.17'   // HTTPS without trailing slash
+  'https://212.90.120.17',   // HTTPS without trailing slash
+
+  "https://rrrpay.co/",
 ].filter(Boolean); // Remove undefined values
 
 app.use(
