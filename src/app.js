@@ -73,7 +73,8 @@ app.use(
       'Authorization',
       'X-API-Key',
       'Cache-Control',
-      'Pragma'
+      'Pragma',
+      'X-Request-Time'
     ],
     exposedHeaders: ['Set-Cookie'],
     optionsSuccessStatus: 200,
@@ -90,7 +91,7 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', origin || '*');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma, X-Request-Time');
   }
   
   if (req.method === 'OPTIONS') {
@@ -135,7 +136,7 @@ app.options('*', (req, res) => {
   if (!origin || allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma, X-Request-Time');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.sendStatus(200);
   } else {
