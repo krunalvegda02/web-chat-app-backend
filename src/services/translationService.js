@@ -158,7 +158,7 @@ export async function transcribeAudio(audioUrl) {
  * @param {string} voice - OpenAI TTS voice name (default: 'alloy').
  * @returns {{ audioUrl: string }}
  */
-export async function textToSpeech(text, voice = 'aria') {
+export async function textToSpeech(text, voice = 'alloy') {
     if (!text || text.trim().length === 0) {
         return null;
     }
