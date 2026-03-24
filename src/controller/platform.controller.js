@@ -6,6 +6,44 @@ import { successResponse, errorResponse } from '../../src/utils/response.js';
 import { generateAccessToken, saveRefreshToken } from '../utils/tokenUtils.js';
 
 // ============================================
+// AES-256 ENCRYPTION HELPERS FOR API KEYS
+// ============================================
+const ENCRYPTION_KEY = crypto.createHash('sha256').update(process.env.JWT_SECRET || 'fallback_secret').digest(); // 32 bytes
+const IV_LENGTH = 16;
+
+const encryptApiKey = (plainKey) => {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(plainKey, 'utf8'), cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
+};
+
+const decryptApiKey = (encryptedKey) => {
+  const [ivHex, encryptedHex] = encryptedKey.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const encrypted = Buffer.from(encryptedHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString('utf8');
+};
+
+// Validate API key by decrypting stored value and comparing
+const validateApiKey = (plainKey, storedKey) => {
+  try {
+    // Support both old SHA-256 hashed keys and new AES encrypted keys
+    if (storedKey.includes(':')) {
+      // New AES encrypted format
+      return decryptApiKey(storedKey) === plainKey;
+    } else {
+      // Legacy SHA-256 hash format
+      return crypto.createHash('sha256').update(plainKey).digest('hex') === storedKey;
+    }
+  } catch {
+    return false;
+  }
+};
+
+// ============================================
 // DEBUG: Verify Token
 // ============================================
 export const verifyTokenDebug = async (req, res) => {
@@ -136,8 +174,7 @@ export const createPlatform = async (req, res) => {
 
     // Auto-generate API key on creation
     const apiKey = `pk_${crypto.randomBytes(32).toString('hex')}`;
-    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
-    platform.apiKey = hashedKey;
+    platform.apiKey = encryptApiKey(apiKey);
     platform.apiKeyCreatedAt = new Date();
 
     await platform.save();
@@ -671,8 +708,8 @@ export const generateSessionToken = async (req, res) => {
     const { name, email, phone, externalUserId } = req.body;
     if (!phone) return errorResponse(res, 'Phone is required', 400);
 
-    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
-    const platform = await Platform.findOne({ apiKey: hashedKey, status: 'ACTIVE' });
+    const platforms = await Platform.find({ status: 'ACTIVE' });
+    const platform = platforms.find(p => p.apiKey && validateApiKey(apiKey, p.apiKey));
     if (!platform) return errorResponse(res, 'Invalid or inactive API key', 401);
 
     // Generate a short-lived single-use session token
@@ -830,9 +867,12 @@ export const platformChatLogin = async (req, res) => {
       return errorResponse(res, 'Invalid API key format', 401);
     }
 
-    // Hash the incoming key and look up by hash
-    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
-    const platform = await Platform.findOne({ apiKey: hashedKey, status: 'ACTIVE' }).populate('adminId', 'name email phone role');
+    // Validate API key — supports both AES encrypted (new) and SHA-256 hashed (legacy)
+    const platform = await Platform.findOne({ status: 'ACTIVE' }).where('adminId').exists(true)
+      .then(async () => {
+        const platforms = await Platform.find({ status: 'ACTIVE' }).populate('adminId', 'name email phone role');
+        return platforms.find(p => p.apiKey && validateApiKey(apiKey, p.apiKey));
+      });
     if (!platform) {
       return errorResponse(res, 'Invalid or inactive API key', 401);
     }
@@ -1043,12 +1083,9 @@ export const generateApiKey = async (req, res) => {
       return errorResponse(res, 'Unauthorized', 403);
     }
 
-    // Generate a secure API key
+    // Generate a secure API key and store encrypted (can be decrypted later)
     const apiKey = `pk_${crypto.randomBytes(32).toString('hex')}`;
-    const hashedKey = crypto.createHash('sha256').update(apiKey).digest('hex');
-    
-    // Save hashed key — plain key is returned once and never stored
-    platform.apiKey = hashedKey;
+    platform.apiKey = encryptApiKey(apiKey);
     platform.apiKeyCreatedAt = new Date();
     await platform.save();
 
@@ -1085,12 +1122,29 @@ export const getApiKey = async (req, res) => {
       return errorResponse(res, 'No API key found. Please generate one first.', 404);
     }
 
-    // We only store the hash — confirm key exists but cannot return the plain key
+    // Decrypt and return the plain key
+    let plainApiKey;
+    try {
+      if (platform.apiKey.includes(':')) {
+        plainApiKey = decryptApiKey(platform.apiKey);
+      } else {
+        // Legacy SHA-256 key — cannot decrypt, prompt regeneration
+        return successResponse(res, {
+          hasApiKey: true,
+          isLegacy: true,
+          platformId,
+          createdAt: platform.apiKeyCreatedAt,
+        }, 'Legacy API key detected. Please regenerate to view it.');
+      }
+    } catch {
+      return errorResponse(res, 'Failed to decrypt API key', 500);
+    }
+
     return successResponse(res, {
-      hasApiKey: true,
+      apiKey: plainApiKey,
       platformId,
-      createdAt: platform.apiKeyCreatedAt
-    }, 'API key exists. The plain key was shown once at creation time.');
+      createdAt: platform.apiKeyCreatedAt,
+    }, 'API key retrieved successfully');
 
   } catch (error) {
     console.error('Get API key error:', error);
