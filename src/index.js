@@ -33,7 +33,7 @@ const startServer = async () => {
     // Attach Socket.IO
     io = new Server(server, {
       cors: {
-        origin: process.env.CORS_ORIGIN,
+        origin: true, // Allow all origins for testing
         credentials: true,
         methods: ["GET", "POST"],
       },
