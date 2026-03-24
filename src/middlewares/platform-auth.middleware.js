@@ -11,23 +11,18 @@ export const handleTestApiKey = async (req, res, next) => {
     if (apiKey === 'test-api-key') {
       const { platformName } = req.body;
 
-      let platform;
-      if (platformName) {
-        // Find specific platform by name if provided (case-insensitive)
-        platform = await Platform.findOne({
-          name: { $regex: new RegExp(`^${platformName}$`, 'i') },
-          status: 'ACTIVE'
-        }).populate('adminId', 'name email');
+      if (!platformName) {
+        return errorResponse(res, 'Platform name is required when using test API key', 400);
       }
 
-      if (!platform) {
-        // Fallback to first active platform if name not found or not provided
-        platform = await Platform.findOne({ status: 'ACTIVE' })
-          .populate('adminId', 'name email');
-      }
+      // Find specific platform by name (case-insensitive)
+      const platform = await Platform.findOne({
+        name: { $regex: new RegExp(`^${platformName}$`, 'i') },
+        status: 'ACTIVE'
+      }).populate('adminId', 'name email');
 
       if (!platform) {
-        return errorResponse(res, 'No active platform found for testing', 404);
+        return errorResponse(res, `Platform "${platformName}" not found`, 404);
       }
 
       // Attach platform to request for testing
