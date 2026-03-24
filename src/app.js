@@ -92,7 +92,20 @@ app.use(cookieParser());
 // Request logging (after rate limiter)
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No Origin'} - IP: ${req.ip}`);
+  if (req.method === 'OPTIONS') {
+    console.log(`🔍 [OPTIONS] Headers:`, req.headers);
+  }
   next();
+});
+
+// Global OPTIONS handler for all routes
+app.options('*', (req, res) => {
+  console.log(`🔧 [GLOBAL_OPTIONS] Handling OPTIONS for: ${req.path}`);
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
 });
 
 // Test CORS endpoint
