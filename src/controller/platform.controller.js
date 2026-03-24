@@ -794,9 +794,9 @@ export const platformChatLogin = async (req, res) => {
       return errorResponse(res, 'Platform admin data is invalid. Please contact support.', 500);
     }
 
-    // Create room key
+    // Create room key - match existing format with platform prefix
     const sortedParticipants = [user._id.toString(), platformAdmin._id.toString()].sort();
-    const roomKey = `DIRECT_${sortedParticipants.join('_')}`;
+    const roomKey = `DIRECT_PLATFORM_${platformId}_${sortedParticipants.join('_')}`;
 
     console.log(`🔑 [PLATFORM_CHAT] Creating room with key: ${roomKey}`);
 
