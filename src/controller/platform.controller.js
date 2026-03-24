@@ -666,6 +666,7 @@ export const platformChatLogin = async (req, res) => {
     if (apiKey === 'test-api-key') {
       // For test API key, find platform by name from request body
       const { platformName } = req.body;
+      console.log("platform name", platformName)
       if (platformName) {
         console.log(`🔍 [PLATFORM_CHAT] Looking for platform: ${platformName}`);
         platform = await Platform.findOne({ 
