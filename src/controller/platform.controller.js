@@ -423,6 +423,37 @@ export const togglePlatformStatus = async (req, res) => {
 };
 
 // ============================================
+// CHANGE ADMIN PASSWORD (Super Admin)
+// ============================================
+export const changeAdminPassword = async (req, res) => {
+  try {
+    const { platformId } = req.params;
+    const { password } = req.body;
+
+    if (req.user.role !== 'SUPER_ADMIN') {
+      return errorResponse(res, 'Unauthorized', 403);
+    }
+    if (!password || password.length < 6) {
+      return errorResponse(res, 'Password must be at least 6 characters', 400);
+    }
+
+    const platform = await Platform.findById(platformId);
+    if (!platform) return errorResponse(res, 'Platform not found', 404);
+
+    const adminUser = await User.findById(platform.adminId);
+    if (!adminUser) return errorResponse(res, 'Admin user not found', 404);
+
+    adminUser.password = password;
+    await adminUser.save();
+
+    return successResponse(res, null, 'Password changed successfully');
+  } catch (error) {
+    console.error('Change admin password error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// ============================================
 // DELETE PLATFORM (Super Admin)
 // ============================================
 export const deletePlatform = async (req, res) => {

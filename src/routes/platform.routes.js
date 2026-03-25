@@ -7,6 +7,7 @@ import {
   updatePlatform,
   togglePlatformStatus,
   deletePlatform,
+  changeAdminPassword,
   getPlatformUsers,
   getUserById,
   updateUserStatus,
@@ -56,6 +57,7 @@ router.get('/', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), ge
 router.get('/:platformId', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getPlatformById);
 router.put('/:platformId', authenticate, requireRole(['SUPER_ADMIN']), updatePlatform);
 router.patch('/:platformId/toggle-status', authenticate, requireRole(['SUPER_ADMIN']), togglePlatformStatus);
+router.patch('/:platformId/change-password', authenticate, requireRole(['SUPER_ADMIN']), changeAdminPassword);
 router.delete('/:platformId', authenticate, requireRole(['SUPER_ADMIN']), deletePlatform);
 
 // User management (Platform Admin can manage their own users)

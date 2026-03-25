@@ -12,9 +12,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TARGET_LANGUAGE = 'hi'; // Hindi
 
 const LANGUAGE_NAMES = {
-  hi: 'Hindi', bn: 'Bengali', te: 'Telugu', mr: 'Marathi', ta: 'Tamil',
-  gu: 'Gujarati', kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi',
-  or: 'Odia', as: 'Assamese', ur: 'Urdu'
+    en: "English", hi: 'Hindi', bn: 'Bengali', te: 'Telugu', mr: 'Marathi', ta: 'Tamil',
+    gu: 'Gujarati', kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi',
+    or: 'Odia', as: 'Assamese', ur: 'Urdu'
 };
 
 // ============================================================
@@ -39,7 +39,7 @@ export async function translateText(text, targetLang = TARGET_LANGUAGE) {
 
     try {
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-        
+
         const response = await openai.chat.completions.create({
             model: 'gpt-3.5-turbo',
             messages: [
@@ -57,7 +57,7 @@ export async function translateText(text, targetLang = TARGET_LANGUAGE) {
         });
 
         const translatedText = response.choices[0]?.message?.content?.trim() || text;
-        
+
         console.log(`✅ [TRANSLATE:OPENAI] → ${targetLang}: "${text.substring(0, 30)}..."`);
         return { translatedText, detectedLanguage: 'auto', skipped: false };
     } catch (error) {
@@ -179,7 +179,7 @@ export async function textToSpeech(text, voice = 'alloy') {
     try {
         console.log(`🎤 [TTS:OPENAI] Synthesizing speech...`);
         const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-        
+
         const response = await openai.audio.speech.create({
             model: 'tts-1',
             voice: voice,
@@ -188,7 +188,7 @@ export async function textToSpeech(text, voice = 'alloy') {
         });
 
         const audioBuffer = Buffer.from(await response.arrayBuffer());
-        
+
         // Save and upload
         fs.writeFileSync(tempFilePath, audioBuffer);
         console.log(`💾 [TTS] Saved temp audio: ${tempFilePath} (${audioBuffer.length} bytes)`);
