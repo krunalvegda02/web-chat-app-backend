@@ -40,15 +40,15 @@ const allowedOrigins = [
   'https://212.90.120.17',   // HTTPS without trailing slash
 
   "https://rrrpay.co",
-  "https://lalajibook.com",
-  "https://patidar9.com",
-  "https://drplay.club",
-  "https://drdiamond247.com",
-  "https://drdiamond9.com",
-  "https://rockybook.fun",
-  "https://rockybook.io",
-  "https://rockybook.co",
-  "https://pilotplay.com"
+  // "https://lalajibook.com",
+  // "https://patidar9.com",
+  // "https://drplay.club",
+  // "https://drdiamond247.com",
+  // "https://drdiamond9.com",
+  // "https://rockybook.fun",
+  // "https://rockybook.io",
+  // "https://rockybook.co",
+  // "https://pilotplay.com"
 ].filter(Boolean); // Remove undefined values
 
 app.use(
