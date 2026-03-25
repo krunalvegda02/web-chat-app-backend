@@ -172,8 +172,6 @@ const userSchema = new mongoose.Schema({
 // ========== INDEXES ==========
 userSchema.index({ email: 1, platformId: 1 }, { unique: true, sparse: true });
 userSchema.index({ phone: 1, platformId: 1 }, { unique: true, sparse: true });
-userSchema.index({ email: 1, platformName: 1 }, { unique: true, sparse: true });
-userSchema.index({ phone: 1, platformName: 1 }, { unique: true, sparse: true });
 userSchema.index({ platformId: 1 });
 userSchema.index({ platformName: 1 });
 userSchema.index({ tenantId: 1 });
