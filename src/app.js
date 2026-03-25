@@ -33,13 +33,22 @@ const allowedOrigins = [
   'http://localhost:5173', // Frontend Vite dev server
   'http://127.0.0.1:5173',
   'http://rrrpay.co/',
-  'https://vfx247.club', 
+  'https://vfx247.club',
   'http://212.90.120.17/', // With trailing slash
   'http://212.90.120.17',  // Without trailing slash
   'https://212.90.120.17/', // HTTPS with trailing slash
   'https://212.90.120.17',   // HTTPS without trailing slash
 
   "https://rrrpay.co",
+  "https://lalajibook.com",
+  "https://patidar9.com",
+  "https://drplay.club",
+  "https://drdiamond247.com",
+  "https://drdiamond9.com",
+  "https://rockybook.fun",
+  "https://rockybook.io",
+  "https://rockybook.co",
+  "https://pilotplay.com"
 ].filter(Boolean); // Remove undefined values
 
 app.use(
@@ -49,16 +58,16 @@ app.use(
       if (!origin) {
         return callback(null, true);
       }
-      
+
       // Check if origin is in allowed list
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      
+
       // Log rejected origins for debugging
       console.warn(`❌ [CORS] Rejected origin: ${origin}`);
       console.log(`🔍 [CORS] Allowed origins:`, allowedOrigins);
-      
+
       const error = new Error(`CORS policy violation: Origin ${origin} not allowed`);
       error.status = 403;
       callback(error);
@@ -85,7 +94,7 @@ app.use(
 // Manual CORS headers as fallback (only for allowed origins)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  
+
   // Only add CORS headers for allowed origins
   if (!origin || allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin || '*');
@@ -93,7 +102,7 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,PATCH,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma, X-Request-Time');
   }
-  
+
   if (req.method === 'OPTIONS') {
     if (!origin || allowedOrigins.includes(origin)) {
       res.sendStatus(200);
@@ -132,7 +141,7 @@ app.use((req, res, next) => {
 app.options('*', (req, res) => {
   const origin = req.headers.origin;
   console.log(`🔧 [GLOBAL_OPTIONS] Handling OPTIONS for: ${req.path} from origin: ${origin}`);
-  
+
   if (!origin || allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
@@ -147,9 +156,9 @@ app.options('*', (req, res) => {
 
 // Test CORS endpoint
 app.get('/api/test-cors', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'CORS is working!', 
+  res.json({
+    success: true,
+    message: 'CORS is working!',
     origin: req.headers.origin,
     ip: req.ip,
     timestamp: new Date().toISOString()
