@@ -11,6 +11,12 @@ import { uploadOnCloudinary } from '../utils/cloudinary.js';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TARGET_LANGUAGE = 'hi'; // Hindi
 
+const LANGUAGE_NAMES = {
+  hi: 'Hindi', bn: 'Bengali', te: 'Telugu', mr: 'Marathi', ta: 'Tamil',
+  gu: 'Gujarati', kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi',
+  or: 'Odia', as: 'Assamese', ur: 'Urdu'
+};
+
 // ============================================================
 // 1. TRANSLATE TEXT (Azure Translator)
 // ============================================================
@@ -39,7 +45,7 @@ export async function translateText(text, targetLang = TARGET_LANGUAGE) {
             messages: [
                 {
                     role: 'system',
-                    content: `You are a translation assistant. Translate the given text to ${targetLang === 'hi' ? 'Hindi' : targetLang}. Only return the translated text, nothing else. If the text is already in the target language, return it as is.`
+                    content: `You are a translation assistant. Translate the given text to ${LANGUAGE_NAMES[targetLang] || targetLang}. Only return the translated text, nothing else. If the text is already in the target language, return it as is.`
                 },
                 {
                     role: 'user',
@@ -221,7 +227,7 @@ export async function textToSpeech(text, voice = 'alloy') {
  * @param {string} audioUrl - URL of the original audio
  * @returns {object|null} Translation result
  */
-export async function translateVoiceMessage(audioUrl) {
+export async function translateVoiceMessage(audioUrl, targetLanguage = TARGET_LANGUAGE) {
     console.log(`🎙️ [VOICE_PIPELINE] Starting voice translation for: ${audioUrl?.substring(0, 60)}...`);
 
     // Step 1: Transcribe
@@ -237,7 +243,7 @@ export async function translateVoiceMessage(audioUrl) {
     let originalLanguage = transcription.detectedLanguage;
 
     try {
-        const translation = await translateText(transcription.text, TARGET_LANGUAGE);
+        const translation = await translateText(transcription.text, targetLanguage);
         if (translation && !translation.skipped) {
             translatedTranscription = translation.translatedText;
             isTranslated = true;

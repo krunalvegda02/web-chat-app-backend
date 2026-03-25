@@ -4,7 +4,7 @@ import User from '../models/user.model.js';
 import CallLog from '../models/callLog.model.js';
 import { decodeToken } from '../utils/tokenUtils.js';
 import { sendMessageNotification } from '../controller/notification.controller.js';
-import { translateText } from '../services/translationService.js';
+import { translateText, translateVoiceMessage } from '../services/translationService.js';
 import { setUserSocketsMap } from './socketUtils.js';
 
 
@@ -591,43 +591,6 @@ export const registerChatSocket = (io) => {
 
         console.log(`💬 [MSG] Message sent in room ${roomId} by ${userId} (status: ${message.status})`);
 
-        // ✅ ASYNC TRANSLATION: Non-blocking translation for USER → PLATFORM_ADMIN
-        if (userRole === 'USER') {
-          (async () => {
-            try {
-              const translationResult = await translateText(content.trim());
-              if (translationResult && !translationResult.skipped) {
-                // Update message in DB with translation
-                await Message.findByIdAndUpdate(message._id, {
-                  'translation.originalLanguage': translationResult.detectedLanguage,
-                  'translation.translatedContent': translationResult.translatedText,
-                  'translation.isTranslated': true,
-                });
-
-                // Emit translation event to room
-                const translationData = {
-                  messageId: message._id.toString(),
-                  roomId,
-                  translation: {
-                    originalLanguage: translationResult.detectedLanguage,
-                    translatedContent: translationResult.translatedText,
-                    isTranslated: true,
-                  },
-                };
-                emitToRoom(io, roomId, 'message_translated', translationData);
-                room.participants.forEach(participant => {
-                  if (participant.userId && participant.userId._id) {
-                    emitToUser(io, participant.userId._id.toString(), 'message_translated', translationData);
-                  }
-                });
-                console.log(`🌐 [TRANSLATE] Text translation complete for message ${message._id}`);
-              }
-            } catch (translationError) {
-              console.error(`⚠️ [TRANSLATE] Non-critical translation error:`, translationError.message);
-            }
-          })();
-        }
-
       } catch (error) {
         console.error(`❌ [SEND_MESSAGE] Error: ${error.message}`);
         socket.emit('error', { message: 'Failed to send message' });
@@ -976,6 +939,102 @@ export const registerChatSocket = (io) => {
       } catch (error) {
         console.error(`❌ [DELETE_MESSAGE] Error: ${error.message}`);
         socket.emit('error', { message: 'Internal server error during deletion' });
+      }
+    });
+
+    // ========== EVENT: Translate Message (on-demand) ==========
+    socket.on('translate_message', async ({ messageId, targetLanguage }) => {
+      try {
+        if (!messageId || !targetLanguage) return;
+
+        const message = await Message.findById(messageId).lean();
+        if (!message) return socket.emit('error', { message: 'Message not found' });
+
+        const isVoice = message.type === 'audio' || message.type === 'voice' ||
+          message.media?.some(m => m.isVoiceNote || m.mimeType?.includes('ogg') || m.mimeType?.includes('webm'));
+
+        // Use cached translation if same language
+        if (
+          message.translation?.isTranslated &&
+          message.translation?.targetLanguage === targetLanguage &&
+          message.translation?.translatedContent
+        ) {
+          return socket.emit('message_translated', {
+            messageId,
+            roomId: message.roomId.toString(),
+            translation: {
+              originalLanguage: message.translation.originalLanguage,
+              translatedContent: message.translation.translatedContent,
+              translatedAudioUrl: message.translation.translatedAudioUrl || null,
+              transcription: message.translation.transcription || null,
+              translatedTranscription: message.translation.translatedTranscription || null,
+              targetLanguage,
+              isTranslated: true,
+            },
+          });
+        }
+
+        let translationUpdate = {};
+        let translationResult = {};
+
+        if (isVoice && message.media?.[0]?.url) {
+          // Full voice pipeline: transcribe → translate → TTS
+          const audioUrl = message.media[0].url;
+          console.log(`🎤 [TRANSLATE] Running voice pipeline for ${messageId} → ${targetLanguage}`);
+          const voiceResult = await translateVoiceMessage(audioUrl, targetLanguage);
+          if (!voiceResult) return socket.emit('error', { message: 'Voice translation failed' });
+
+          translationUpdate = {
+            'translation.transcription': voiceResult.transcription,
+            'translation.originalLanguage': voiceResult.originalLanguage,
+            'translation.translatedTranscription': voiceResult.translatedTranscription,
+            'translation.translatedAudioUrl': voiceResult.translatedAudioUrl,
+            'translation.translatedContent': voiceResult.translatedTranscription || voiceResult.transcription,
+            'translation.targetLanguage': targetLanguage,
+            'translation.isTranslated': true,
+          };
+          translationResult = {
+            originalLanguage: voiceResult.originalLanguage,
+            translatedContent: voiceResult.translatedTranscription || voiceResult.transcription,
+            translatedAudioUrl: voiceResult.translatedAudioUrl,
+            transcription: voiceResult.transcription,
+            translatedTranscription: voiceResult.translatedTranscription,
+            targetLanguage,
+            isTranslated: true,
+          };
+        } else {
+          // Text translation
+          const textToTranslate = message.content || message.translation?.transcription;
+          if (!textToTranslate) return socket.emit('error', { message: 'No text to translate' });
+
+          const result = await translateText(textToTranslate.trim(), targetLanguage);
+          if (!result || result.skipped) return socket.emit('error', { message: 'Translation failed' });
+
+          translationUpdate = {
+            'translation.originalLanguage': result.detectedLanguage,
+            'translation.translatedContent': result.translatedText,
+            'translation.targetLanguage': targetLanguage,
+            'translation.isTranslated': true,
+          };
+          translationResult = {
+            originalLanguage: result.detectedLanguage,
+            translatedContent: result.translatedText,
+            targetLanguage,
+            isTranslated: true,
+          };
+        }
+
+        await Message.findByIdAndUpdate(messageId, translationUpdate);
+
+        socket.emit('message_translated', {
+          messageId,
+          roomId: message.roomId.toString(),
+          translation: translationResult,
+        });
+        console.log(`🌐 [TRANSLATE] Complete: ${messageId} → ${targetLanguage}`);
+      } catch (error) {
+        console.error(`❌ [TRANSLATE] Error:`, error.message);
+        socket.emit('error', { message: 'Translation failed' });
       }
     });
 

@@ -156,6 +156,10 @@ const messageSchema = new mongoose.Schema(
       isTranslated: {
         type: Boolean,
         default: false
+      },
+      targetLanguage: {
+        type: String,
+        default: null
       }
     }
 
