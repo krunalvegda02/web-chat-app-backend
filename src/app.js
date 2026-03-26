@@ -33,10 +33,10 @@ const allowedOrigins = [
   'http://localhost:5173', // Frontend Vite dev server
   'http://127.0.0.1:5173',
   'http://rrrpay.co/',
-  'https://vfx247.club',
-  'http://212.90.120.17/', // With trailing slash
-  'http://212.90.120.17',  // Without trailing slash
-  'https://212.90.120.17/', // HTTPS with trailing slash
+  'https://vfx247.club',      
+  'http://212.90.120.17/',   // With trailing slash
+  'http://212.90.120.17',    // Without trailing slash
+  'https://212.90.120.17/',  // HTTPS with trailing slash
   'https://212.90.120.17',   // HTTPS without trailing slash
 
   "https://rrrpay.co",
