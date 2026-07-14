@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
-import { welcomeEmailTemplate, inviteEmailTemplate, passwordResetEmailTemplate, accountCreatedEmailTemplate, otpEmailTemplate, passwordChangedEmailTemplate } from './emailTemplates.js';
+import { welcomeEmailTemplate, passwordResetEmailTemplate,  otpEmailTemplate, passwordChangedEmailTemplate } from './emailTemplates.js';
 dotenv.config();
 
 const transporter = nodemailer.createTransport({
@@ -11,13 +11,13 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-export const sendWelcomeEmail = async (email, name, tenantName) => {
+export const sendWelcomeEmail = async (email, name) => {
     try {
         await transporter.sendMail({
-            from: `"${tenantName || 'Chat App'}" <${process.env.EMAIL_USER}>`,
+            from: `"Chat App" <${process.env.EMAIL_USER}>`,
             to: email,
-            subject: `Welcome to ${tenantName || 'Chat App'}! 🎉`,
-            html: welcomeEmailTemplate(name, tenantName)
+            subject: `Welcome to Chat App! 🎉`,
+            html: welcomeEmailTemplate(name)
         });
         console.log(`✅ Welcome email sent to ${email}`);
     } catch (error) {
@@ -25,19 +25,6 @@ export const sendWelcomeEmail = async (email, name, tenantName) => {
     }
 };
 
-export const sendInviteEmail = async (email, tenantName, inviteUrl) => {
-    try {
-        await transporter.sendMail({
-            from: `"${tenantName}" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: `You're invited to join ${tenantName}! 🎉`,
-            html: inviteEmailTemplate(tenantName, inviteUrl)
-        });
-        console.log(`✅ Invite email sent to ${email}`);
-    } catch (error) {
-        console.error('❌ Failed to send invite email:', error.message);
-    }
-};
 
 export const sendPasswordResetEmail = async (email, name, resetToken, resetUrl) => {
     try {

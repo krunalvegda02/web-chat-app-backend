@@ -2,17 +2,17 @@
 /**
  * Welcome email template
  */
-export const welcomeEmailTemplate = (name, tenantName) => {
+export const welcomeEmailTemplate = (name) => {
     return `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f5f5f5; padding: 20px;">
             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
-                <h1 style="margin: 0; font-size: 28px;">Welcome to ${tenantName || 'Chat App'}! 🎉</h1>
+                <h1 style="margin: 0; font-size: 28px;">Welcome to Chat App! 🎉</h1>
             </div>
             <div style="background-color: white; padding: 30px; border-radius: 0 0 10px 10px;">
                 <p style="margin: 0 0 20px 0; color: #333; font-size: 16px;">Hi ${name},</p>
                 
                 <p style="margin: 0 0 20px 0; color: #666; font-size: 14px; line-height: 1.6;">
-                    Thank you for joining ${tenantName || 'Chat App'}! We're excited to have you on board.
+                    Thank you for joining Chat App! We're excited to have you on board.
                 </p>
 
                 <p style="margin: 0 0 20px 0; color: #666; font-size: 14px; line-height: 1.6;">
@@ -45,51 +45,6 @@ export const welcomeEmailTemplate = (name, tenantName) => {
     `;
 };
 
-/**
- * Invite email template
- */
-export const inviteEmailTemplate = (tenantName, inviteUrl) => {
-    return `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f5f5f5; padding: 20px;">
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
-                <h1 style="margin: 0; font-size: 28px;">You're Invited! 🎉</h1>
-            </div>
-            <div style="background-color: white; padding: 30px; border-radius: 0 0 10px 10px;">
-                <p style="margin: 0 0 20px 0; color: #333; font-size: 16px;">Hi there,</p>
-                
-                <p style="margin: 0 0 20px 0; color: #666; font-size: 14px; line-height: 1.6;">
-                    You've been invited to join <strong>${tenantName}</strong> on Chat App!
-                </p>
-
-                <p style="margin: 0 0 30px 0; color: #666; font-size: 14px; line-height: 1.6;">
-                    Click the button below to accept the invitation and create your account.
-                </p>
-
-                <div style="text-align: center; margin: 30px 0;">
-                    <a href="${inviteUrl}" style="display: inline-block; padding: 12px 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
-                        Accept Invitation
-                    </a>
-                </div>
-
-                <p style="margin: 0 0 20px 0; color: #666; font-size: 12px; line-height: 1.6;">
-                    Or copy this link in your browser:
-                </p>
-                <p style="margin: 0 0 30px 0; color: #667eea; font-size: 12px; word-break: break-all;">
-                    ${inviteUrl}
-                </p>
-
-                <p style="margin: 0 0 20px 0; color: #666; font-size: 12px; line-height: 1.6;">
-                    This invitation will expire in 7 days.
-                </p>
-
-                <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
-                <p style="margin: 0; color: #999; font-size: 12px; text-align: center;">
-                    If you didn't expect this invitation, you can safely ignore this email.
-                </p>
-            </div>
-        </div>
-    `;
-};
 
 /**
  * Password reset email template

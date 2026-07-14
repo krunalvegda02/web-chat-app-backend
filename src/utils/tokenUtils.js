@@ -28,9 +28,7 @@ const generateAccessToken = (userId, email, role, contextId) => {
     // Add context based on role
     if (role === 'PLATFORM_ADMIN') {
         payload.platformId = contextId || null;
-    } else {
-        payload.tenantId = contextId || null;
-    }
+    } 
     
     const secret = getJwtSecret();
     if (!secret) {

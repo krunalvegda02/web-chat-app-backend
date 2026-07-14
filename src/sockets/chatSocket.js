@@ -62,7 +62,7 @@ class RateLimiter {
 // ============ HELPER FUNCTIONS ============
 
 /**
- * ✅ FIXED: Verify user has access to room - Works for ALL roles
+ *  Verify user has access to room - Works for ALL roles
  */
 const verifyRoomAccess = (room, userId, userRole = null) => {
   if (!room) {
@@ -70,8 +70,8 @@ const verifyRoomAccess = (room, userId, userRole = null) => {
     return { valid: false, error: 'Room not found' };
   }
 
-  // ✅ SUPER_ADMIN, ADMIN, TENANT_ADMIN, PLATFORM_ADMIN have universal access
-  const universalRoles = ['SUPER_ADMIN', 'ADMIN', 'TENANT_ADMIN', 'PLATFORM_ADMIN'];
+  // ✅ SUPER_ADMIN,PLATFORM_ADMIN have universal access
+  const universalRoles = ['SUPER_ADMIN', 'PLATFORM_ADMIN'];
   if (userRole && universalRoles.includes(userRole)) {
     console.log(`✅ [ACCESS] ${userRole} has universal room access`);
     return { valid: true };

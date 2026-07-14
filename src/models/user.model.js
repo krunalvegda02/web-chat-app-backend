@@ -11,31 +11,13 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     default: null,
   },
-  // ✅ NEW: Phone number field for contact-based chat
   phone: {
     type: String,
     trim: true,
     default: null,
   },
-  // ✅ NEW: Phone verification status
-  phoneVerified: {
-    type: Boolean,
-    default: false,
-  },
-  // ✅ NEW: Phone verification token
-  phoneVerificationToken: {
-    type: String,
-    default: null,
-  },
-  // Password reset fields
-  passwordResetToken: {
-    type: String,
-    default: null,
-  },
-  passwordResetExpiry: {
-    type: Date,
-    default: null,
-  },
+
+  
   password: {
     type: String,
     required: [true, 'Password is required'],
@@ -46,11 +28,13 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  
   role: {
     type: String,
-    enum: ['USER', 'PLATFORM_ADMIN', 'SUPER_ADMIN', 'TENANT_ADMIN'],
+    enum: ['USER', 'PLATFORM_ADMIN', 'SUPER_ADMIN'],
     default: 'USER',
   },
+
   platformId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Platform',
@@ -62,38 +46,12 @@ const userSchema = new mongoose.Schema({
     trim: true,
     default: null,
   },
-  tenantId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Tenant',
-    default: null,
-    sparse: true,
-  },
+
   status: {
     type: String,
     enum: ['ACTIVE', 'INACTIVE', 'BANNED'],
     default: 'ACTIVE',
   },
-  // ✅ NEW: Contacts list - store other users' IDs with their phone/email
-  contacts: [
-    {
-      userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      },
-      phone: String,
-      email: String,
-      name: String,
-      addedAt: {
-        type: Date,
-        default: Date.now,
-      },
-      isFavorite: {
-        type: Boolean,
-        default: false,
-      },
-      contactName: String, // Custom name for contact
-    },
-  ],
   // ✅ NEW: Blocked users
   blockedUsers: [
     {
@@ -174,10 +132,9 @@ userSchema.index({ email: 1, platformId: 1 }, { unique: true, sparse: true });
 userSchema.index({ phone: 1, platformId: 1 }, { unique: true, sparse: true });
 userSchema.index({ platformId: 1 });
 userSchema.index({ platformName: 1 });
-userSchema.index({ tenantId: 1 });
+
 userSchema.index({ role: 1 });
 userSchema.index({ createdAt: -1 });
-userSchema.index({ 'contacts.userId': 1 });
 userSchema.index({ 'blockedUsers.userId': 1 });
 
 // ========== MIDDLEWARE ==========
@@ -223,52 +180,7 @@ userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.default.compare(password, this.password);
 };
 
-/**
- * ✅ NEW: Add contact by phone or email
- */
-userSchema.methods.addContact = function (userId, phone, email, name, contactName) {
-  // Check if contact already exists
-  const existingContact = this.contacts.find(
-    (c) => c.userId.toString() === userId.toString()
-  );
 
-  if (!existingContact) {
-    this.contacts.push({
-      userId,
-      phone,
-      email,
-      name,
-      contactName: contactName || name,
-      addedAt: new Date(),
-    });
-  }
-
-  return this;
-};
-
-/**
- * ✅ NEW: Remove contact
- */
-userSchema.methods.removeContact = function (userId) {
-  this.contacts = this.contacts.filter(
-    (c) => c.userId.toString() !== userId.toString()
-  );
-  return this;
-};
-
-/**
- * ✅ NEW: Get contact by phone
- */
-userSchema.methods.getContactByPhone = function (phone) {
-  return this.contacts.find((c) => c.phone === phone);
-};
-
-/**
- * ✅ NEW: Get contact by userId
- */
-userSchema.methods.getContact = function (userId) {
-  return this.contacts.find((c) => c.userId.toString() === userId.toString());
-};
 
 /**
  * ✅ NEW: Block user
@@ -308,27 +220,7 @@ userSchema.methods.isUserBlocked = function (userId) {
   );
 };
 
-/**
- * ✅ NEW: Mark contact as favorite
- */
-userSchema.methods.markContactAsFavorite = function (userId) {
-  const contact = this.getContact(userId);
-  if (contact) {
-    contact.isFavorite = true;
-  }
-  return this;
-};
 
-/**
- * ✅ NEW: Unmark contact from favorite
- */
-userSchema.methods.unmarkContactAsFavorite = function (userId) {
-  const contact = this.getContact(userId);
-  if (contact) {
-    contact.isFavorite = false;
-  }
-  return this;
-};
 
 /**
  * Add refresh token (auto-cleans old ones)

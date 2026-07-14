@@ -16,8 +16,6 @@ import {
   platformChatLogin,
   debugJwtSecret,
   verifyTokenDebug,
-  getPlatformTheme,
-  updatePlatformTheme,
   generateApiKey,
   getApiKey,
   revokeApiKey,
@@ -65,9 +63,7 @@ router.get('/:platformId/users', authenticate, requireRole(['SUPER_ADMIN', 'PLAT
 router.get('/users/:userId', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getUserById);
 router.patch('/users/:userId/status', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), updateUserStatus);
 
-// Platform theme management
-router.get('/:platformId/theme', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getPlatformTheme);
-router.put('/:platformId/theme', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), updatePlatformTheme);
+
 
 // API Key management
 router.post('/:platformId/api-key/generate', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), generateApiKey);

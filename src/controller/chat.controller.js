@@ -2,7 +2,6 @@ import Room from "../models/room.model.js";
 import Message from "../models/message.model.js";
 import User from "../models/user.model.js";
 import Platform from "../models/platform.model.js";
-import Contact from "../models/contact.model.js";
 import MESSAGE from "../constants/message.js";
 import { successResponse, errorResponse } from "../utils/response.js";
 import { translateText, translateVoiceMessage } from '../services/translationService.js';
@@ -13,7 +12,6 @@ export const getAvailableUsersToChat = async (req, res, next) => {
         const userRole = req.user.role;
         const userId = req.user._id;
         const platformId = req.user.platformId;
-        const contactsOnly = req.query.contactsOnly === 'true';
 
         let availableUsers = [];
 
@@ -58,15 +56,6 @@ export const getAvailableUsersToChat = async (req, res, next) => {
                 .lean();
 
             availableUsers = platformAdmin ? [platformAdmin, ...otherUsers] : otherUsers;
-        }
-
-        // ✅ Filter by contacts if requested
-        if (contactsOnly) {
-            const user = await User.findById(userId).select('contacts');
-            const contactIds = user.contacts.map(c => c.userId.toString());
-            availableUsers = availableUsers.filter(u =>
-                contactIds.includes(u._id.toString())
-            );
         }
 
         const uniqueUsers = Array.from(

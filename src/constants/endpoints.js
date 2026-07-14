@@ -1,27 +1,20 @@
 const ROUTE = {
     AUTH_ROUTER: "/api/v1/auth",
     USER_ROUTER: "/api/v1/users",
-    TENANT_ROUTER: "/api/v1/tenants",
+
     CHAT_ROUTER: "/api/v1/chat",
     UPLOAD_ROUTER: "/api/v1/upload",
-    CONTACTS_ROUTER: "/api/v1/contacts",
 };
 
 const API = {
     AUTH: {
-        REGISTER: "/register",
         LOGIN: "/login",
         LOGOUT: "/logout",
         LOGOUT_ALL: "/logout-all",
         REFRESH_TOKEN: "/refresh-token",
-        FORGOT_PASSWORD: "/forgot-password",
-        RESET_PASSWORD: "/reset-password",
         ME: "/me",
         SESSIONS: "/sessions",
         REVOKE_SESSION: "/revoke-session",
-        REGISTER_WITH_INVITE: "/register-with-invite",
-
-        INVITE_INFO: '/invite-info',
     },
     SUPER_ADMIN: {
         CREATE_ADMIN: "/create-admin",
@@ -32,27 +25,7 @@ const API = {
         NOTIFICATIONS: "/notifications",
         NOTIFICATION_BY_ID: "/notifications/:notificationId",
     },
-    TENANT: {
-        CREATE: "/",
-        GET_ALL: "/",
-        UPDATE: "/:tenantId",
-        TOGGLE_STATUS: "/:tenantId/toggle-status",
-        DELETE: "/:tenantId",
-        BY_SLUG: "/by-slug/:slug",
-        DETAILS: "/:tenantId",
-        GET_THEME: "/:tenantId/theme",
-        UPDATE_THEME: "/:tenantId/theme",
-        INVITE_LINK: "/:tenantId/invite-link",
-        USERS: "/:tenantId/users",
 
-        INVITE_USER: '/:tenantId/invite-user',
-        RESEND_INVITE: '/:tenantId/resend-invite',
-        INVITE_HISTORY: '/:tenantId/invite-history',
-        ADMIN_USERS: '/admin-users',
-        TENANT_MEMBERS: '/members'
-
-
-    },
 
     CHAT: {
         AVAILABLE_USERS: "/available-users",
@@ -69,7 +42,7 @@ const API = {
         ADMIN_CHATS_BY_ID: "/admin/chats/:adminId",
         USER_ROOMS: "/user/:userId/rooms",
 
-        // ADMIN / TENANT_ADMIN (NEW – MEMBER MONITORING)
+        // ADMIN (NEW – MEMBER MONITORING)
         ADMIN_MEMBER_CHATS: "/admin/member-chats",
         SPECIFIC_MEMBER_CHATS: "/admin/member-chats/:memberId",
         MEMBER_CHAT_HISTORY: "/admin/member-chats/:memberId/rooms/:roomId/messages"

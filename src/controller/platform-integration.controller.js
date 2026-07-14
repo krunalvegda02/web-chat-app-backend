@@ -15,6 +15,8 @@ export const platformIntegrationRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
+
+
 // ============================================
 // GENERATE API KEY FOR PLATFORM
 // ============================================
@@ -56,6 +58,8 @@ export const generatePlatformApiKey = async (req, res) => {
   }
 };
 
+
+
 // ============================================
 // MIDDLEWARE: VERIFY PLATFORM API KEY
 // ============================================
@@ -93,6 +97,8 @@ export const verifyPlatformApiKey = async (req, res, next) => {
     return errorResponse(res, 'API key verification failed', 401);
   }
 };
+
+
 
 // ============================================
 // SECURE PLATFORM CHAT LOGIN
@@ -163,7 +169,6 @@ export const securePlatformChatLogin = async (req, res) => {
           status: 'ACTIVE',
           phoneVerified: false,
           externalUserId: externalUserId || null,
-          contacts: [],
           blockedUsers: [],
         });
 
@@ -349,8 +354,7 @@ export const securePlatformChatLogin = async (req, res) => {
       },
       platform: {
         _id: platform._id,
-        name: platform.name,
-        theme: platform.theme
+        name: platform.name
       },
       redirectUrl: `/user/chats/${room._id}`,
     }, 'Login successful', 200);
@@ -383,6 +387,8 @@ export const securePlatformChatLogin = async (req, res) => {
     return errorResponse(res, errorMessage, statusCode);
   }
 };
+
+
 
 // ============================================
 // GET PLATFORM USER BY EXTERNAL ID

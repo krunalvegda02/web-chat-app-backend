@@ -23,7 +23,7 @@ const roomSchema = new mongoose.Schema(
       unique: true
     },
 
-    // ✅ Tenant association (for multi-tenant)
+
     platformId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Platform',
@@ -133,6 +133,8 @@ roomSchema.index({ platformId: 1, type: 1 });
 roomSchema.index({ lastMessageTime: -1 });
 roomSchema.index({ isArchived: 1 });
 roomSchema.index({ createdAt: -1 });
+
+
 
 // ✅ Pre-save hook: Generate participantKey for DIRECT/ADMIN_CHAT rooms
 roomSchema.pre('save', function (next) {

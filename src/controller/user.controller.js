@@ -1,5 +1,4 @@
 import User from "../models/user.model.js";
-import Contact from "../models/contact.model.js";
 import { successResponse, errorResponse } from "../utils/response.js";
 import MESSAGE from "../constants/message.js";
 import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/cloudinary.js";
@@ -68,16 +67,10 @@ const getUserById = async (req, res, next) => {
       return errorResponse(res, MESSAGE.USER_NOT_FOUND, 404);
     }
 
-    // Check if user is in contacts
-    const contact = await Contact.findOne({
-      userId: req.user._id,
-      contactUserId: userId
-    });
-
     return successResponse(res, { 
       user, 
-      isContact: !!contact,
-      contact: contact || null
+      isContact: false,
+      contact: null
     });
   } catch (error) {
     next(error);

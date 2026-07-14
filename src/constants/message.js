@@ -29,14 +29,6 @@ const MESSAGE = {
     PROFILE_UPDATED: "Profile updated successfully",
     NOTIFICATION_MARKED_READ: "Notification marked as read",
     
-    // Tenant Messages
-    TENANT_CREATED: "Tenant created successfully",
-    TENANT_UPDATED: "Tenant updated successfully",
-    TENANT_DELETED: "Tenant deleted successfully",
-    THEME_UPDATED: "Theme updated successfully",
-    INVITE_LINK_GENERATED: "Invite link generated successfully",
-    TENANT_NOT_FOUND: "Tenant not found",
-    
     // Chat Messages
     ROOM_CREATED: "Room created successfully",
     MESSAGE_SENT: "Message sent successfully",
