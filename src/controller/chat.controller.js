@@ -5,6 +5,7 @@ import Platform from "../models/platform.model.js";
 import MESSAGE from "../constants/message.js";
 import { successResponse, errorResponse } from "../utils/response.js";
 import { translateText, translateVoiceMessage } from '../services/translationService.js';
+import { deductCreditsForMessage } from './wallet.controller.js';
 
 // ✅ GET AVAILABLE USERS TO CHAT WITH
 export const getAvailableUsersToChat = async (req, res, next) => {
@@ -442,6 +443,15 @@ export const sendMessageWithMedia = async (req, res, next) => {
 
         if (!isParticipant) {
             return errorResponse(res, 'Only room members can send messages', 403);
+        }
+
+        // 💰 Deduct ChatCoin credits ONLY for PLATFORM_ADMIN users (1 credit per character)
+        // Ensure regular USER messages are NEVER charged
+        if (content && req.user.role === 'PLATFORM_ADMIN') {
+            const deduction = await deductCreditsForMessage(req.user._id, content);
+            if (!deduction.success) {
+                return errorResponse(res, deduction.error, 403);
+            }
         }
 
         // 

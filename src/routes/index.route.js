@@ -6,6 +6,7 @@ import uploadRoutes from "./upload.routes.js";
 import callLogRoutes from "./callLog.routes.js";
 import notificationRoutes from "./notification.routes.js";
 import platformRoutes from "./platform.routes.js";
+import walletRoutes from "./wallet.routes.js";
 
 import { ROUTE } from "../constants/endpoints.js";
 
@@ -17,6 +18,7 @@ const registerRoutes = (app) => {
   app.use('/api/v1/call-logs', callLogRoutes);
   app.use('/api/v1/notifications', notificationRoutes);
   app.use('/api/v1/platforms', platformRoutes);
+  app.use('/api/v1/wallet', walletRoutes);
 };
 
 export default registerRoutes;

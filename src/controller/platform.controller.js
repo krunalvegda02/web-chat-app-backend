@@ -4,6 +4,8 @@ import Room from '../models/room.model.js';
 import crypto from 'crypto';
 import { successResponse, errorResponse } from '../../src/utils/response.js';
 import { generateAccessToken, saveRefreshToken } from '../utils/tokenUtils.js';
+import SuperAdminBank from '../models/superAdminBank.model.js';
+
 
 // ============================================
 // AES-256 ENCRYPTION HELPERS FOR API KEYS
@@ -27,6 +29,7 @@ const decryptApiKey = (encryptedKey) => {
   return decrypted.toString('utf8');
 };
 
+
 // Validate API key by decrypting stored value and comparing
 const validateApiKey = (plainKey, storedKey) => {
   try {
@@ -49,18 +52,18 @@ const validateApiKey = (plainKey, storedKey) => {
 export const verifyTokenDebug = async (req, res) => {
   try {
     const { token } = req.body;
-    
+
     if (!token) {
       return errorResponse(res, 'Token is required', 400);
     }
-    
+
     const { decodeToken } = await import('../utils/tokenUtils.js');
     const decoded = decodeToken(token);
-    
+
     if (!decoded) {
       return errorResponse(res, 'Token verification failed', 401);
     }
-    
+
     return successResponse(res, {
       decoded,
       message: 'Token verified successfully'
@@ -78,14 +81,14 @@ export const debugJwtSecret = async (req, res) => {
   try {
     const secret = process.env.JWT_SECRET;
     const secretTrimmed = secret ? secret.trim() : undefined;
-    
+
     console.log('=== JWT SECRET DEBUG ===');
     console.log(`Raw secret length: ${secret ? secret.length : 'undefined'}`);
     console.log(`Trimmed secret length: ${secretTrimmed ? secretTrimmed.length : 'undefined'}`);
     console.log(`Raw secret: ${secret}`);
     console.log(`Trimmed secret: ${secretTrimmed}`);
     console.log(`Are they equal? ${secret === secretTrimmed}`);
-    
+
     return successResponse(res, {
       rawLength: secret ? secret.length : null,
       trimmedLength: secretTrimmed ? secretTrimmed.length : null,
@@ -393,18 +396,18 @@ export const togglePlatformStatus = async (req, res) => {
     const adminUser = await User.findById(platform.adminId);
     if (adminUser) {
       adminUser.status = platform.status;
-      
+
       // If deactivating, revoke all refresh tokens to force logout
       if (platform.status === 'INACTIVE') {
         adminUser.revokeAllRefreshTokens();
-        
+
         // Force disconnect from socket if connected
         const { forceUserDisconnect } = await import('../sockets/socketUtils.js').catch(() => ({ forceUserDisconnect: null }));
         if (forceUserDisconnect) {
           forceUserDisconnect(req.app.get('io'), platform.adminId.toString(), 'Account has been deactivated');
         }
       }
-      
+
       await adminUser.save();
     }
 
@@ -908,14 +911,14 @@ export const platformChatLogin = async (req, res) => {
 
     // Create or get room with platform admin
     let platformAdmin = platform.adminId; // Already populated
-    
+
     console.log(`🔍 [PLATFORM_CHAT] Initial platformAdmin:`, {
       exists: !!platformAdmin,
       type: typeof platformAdmin,
       isString: typeof platformAdmin === 'string',
       value: platformAdmin
     });
-    
+
     // If not populated, fetch manually
     if (!platformAdmin || typeof platformAdmin === 'string') {
       console.log(`🔍 [PLATFORM_CHAT] Admin not populated, fetching manually: ${platform.adminId}`);
@@ -931,7 +934,7 @@ export const platformChatLogin = async (req, res) => {
         return errorResponse(res, 'Error fetching platform admin. Please contact support.', 500);
       }
     }
-    
+
     if (!platformAdmin) {
       console.error(`❌ [PLATFORM_CHAT] Platform admin not found for platform ${platformId}, adminId: ${platform.adminId}`);
       return errorResponse(res, 'Platform admin not found. Please contact support.', 500);
@@ -975,11 +978,11 @@ export const platformChatLogin = async (req, res) => {
         console.log(`💾 [PLATFORM_CHAT] Saving room...`);
         await room.save();
         console.log(`✅ [PLATFORM_CHAT] Room saved successfully: ${room._id}`);
-        
+
         console.log(`🔄 [PLATFORM_CHAT] Populating room participants...`);
         await room.populate('participants.userId', 'name email avatar role phone');
         console.log(`✅ [PLATFORM_CHAT] Room populated successfully`);
-        
+
         console.log(`✅ [PLATFORM_CHAT] Created new room: ${room._id}`);
       } catch (error) {
         console.error(`❌ [PLATFORM_CHAT] Room creation error:`, error);
@@ -989,12 +992,12 @@ export const platformChatLogin = async (req, res) => {
           room = await Room.findOne({ participantKey: roomKey })
             .populate('participants.userId', 'name email avatar role phone')
             .populate('lastMessage');
-          
+
           if (!room) {
             console.error(`❌ [PLATFORM_CHAT] Failed to fetch existing room after race condition`);
             return errorResponse(res, 'Failed to create or fetch room. Please try again.', 500);
           }
-          
+
           console.log(`⚠️ [PLATFORM_CHAT] Room already exists: ${room._id}`);
         } else {
           throw error;
@@ -1040,7 +1043,7 @@ export const platformChatLogin = async (req, res) => {
 export const generateApiKey = async (req, res) => {
   try {
     const { platformId } = req.params;
-    
+
     const platform = await Platform.findById(platformId);
     if (!platform) {
       return errorResponse(res, 'Platform not found', 404);
@@ -1075,7 +1078,7 @@ export const generateApiKey = async (req, res) => {
 export const getApiKey = async (req, res) => {
   try {
     const { platformId } = req.params;
-    
+
     const platform = await Platform.findById(platformId);
     if (!platform) {
       return errorResponse(res, 'Platform not found', 404);
@@ -1126,7 +1129,7 @@ export const getApiKey = async (req, res) => {
 export const revokeApiKey = async (req, res) => {
   try {
     const { platformId } = req.params;
-    
+
     const platform = await Platform.findById(platformId);
     if (!platform) {
       return errorResponse(res, 'Platform not found', 404);
@@ -1146,6 +1149,67 @@ export const revokeApiKey = async (req, res) => {
 
   } catch (error) {
     console.error('Revoke API key error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+// -------------------------------------------
+// Super‑Admin Bank Details Controllers
+// -------------------------------------------
+
+/**
+ * Get shared bank details (visible to Super‑Admin and Platform‑Admin)
+ */
+export const getSuperAdminBank = async (req, res) => {
+  try {
+    const bank = await SuperAdminBank.findOne();
+    if (!bank) {
+      return successResponse(res, null, 'Bank details not set');
+    }
+    return successResponse(res, { bank }, 'Bank details retrieved');
+  } catch (error) {
+    console.error('Get Super Admin bank error:', error);
+    return errorResponse(res, error.message, 500);
+  }
+};
+
+/**
+ * Update shared bank details – only Super‑Admin can modify.
+ * Validation ensures proper formats for accountNumber and IFSC.
+ */
+export const updateSuperAdminBank = async (req, res) => {
+  try {
+    const { bankName, accountNumber, ifscCode, upiId } = req.body;
+    const errors = [];
+    if (bankName !== undefined && (!bankName || typeof bankName !== 'string')) {
+      errors.push('bankName must be a non‑empty string');
+    }
+    if (accountNumber !== undefined && !/^\d{9,18}$/.test(accountNumber)) {
+      errors.push('accountNumber must be 9‑18 digits');
+    }
+    if (ifscCode !== undefined && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscCode)) {
+      errors.push('ifscCode format invalid (e.g., ABCD0EFG123)');
+    }
+    if (upiId !== undefined && !/^[\w.\-]{2,256}@[A-Za-z0-9.-]+$/.test(upiId)) {
+      errors.push('upiId format invalid');
+    }
+    if (errors.length) {
+      return errorResponse(res, errors.join('; '), 400);
+    }
+
+    let bank = await SuperAdminBank.findOne();
+    if (!bank) {
+      bank = new SuperAdminBank({ bankName, accountNumber, ifscCode, upiId });
+    } else {
+      if (bankName !== undefined) bank.bankName = bankName;
+      if (accountNumber !== undefined) bank.accountNumber = accountNumber;
+      if (ifscCode !== undefined) bank.ifscCode = ifscCode;
+      if (upiId !== undefined) bank.upiId = upiId;
+    }
+    await bank.save();
+    return successResponse(res, { bank }, 'Bank details updated successfully');
+  } catch (error) {
+    console.error('Update Super Admin bank error:', error);
     return errorResponse(res, error.message, 500);
   }
 };

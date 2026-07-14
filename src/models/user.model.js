@@ -35,6 +35,17 @@ const userSchema = new mongoose.Schema({
     default: 'USER',
   },
 
+  // ==== Wallet fields ====
+  walletBalance: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  walletCurrency: {
+    type: String,
+    default: 'ChatCoin',
+  },
+
   platformId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Platform',

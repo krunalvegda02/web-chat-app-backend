@@ -12,7 +12,6 @@ import {
   getUserById,
   updateUserStatus,
   fixPlatformAdmins,
-  createPlatformUser,
   platformChatLogin,
   debugJwtSecret,
   verifyTokenDebug,
@@ -21,8 +20,10 @@ import {
   revokeApiKey,
   generateSessionToken,
   consumeSessionToken,
+  getSuperAdminBank,
+  updateSuperAdminBank,
 } from '../controller/platform.controller.js';
-import {verifyJWT as authenticate } from '../middlewares/auth.middleware.js';
+import { verifyJWT as authenticate } from '../middlewares/auth.middleware.js';
 import { requireRole } from '../middlewares/role.middleware.js';
 
 const router = express.Router();
@@ -48,6 +49,10 @@ router.post('/chat-login', platformChatLogin);
 
 // Migration endpoint (one-time fix)
 router.post('/fix/admins', authenticate, requireRole(['SUPER_ADMIN']), fixPlatformAdmins);
+
+// Super Admin Bank Details routes
+router.get('/bank-details', authenticate, requireRole(['SUPER_ADMIN', 'PLATFORM_ADMIN']), getSuperAdminBank);
+router.patch('/bank-details', authenticate, requireRole(['SUPER_ADMIN']), updateSuperAdminBank);
 
 // Platform management (Super Admin only)
 router.post('/', authenticate, requireRole(['SUPER_ADMIN']), createPlatform);

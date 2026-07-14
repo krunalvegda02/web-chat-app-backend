@@ -5,6 +5,7 @@ import CallLog from '../models/callLog.model.js';
 import { decodeToken } from '../utils/tokenUtils.js';
 import { sendMessageNotification } from '../controller/notification.controller.js';
 import { translateText, translateVoiceMessage } from '../services/translationService.js';
+import { deductCreditsForMessage } from '../controller/wallet.controller.js';
 import { setUserSocketsMap } from './socketUtils.js';
 
 
@@ -497,6 +498,15 @@ export const registerChatSocket = (io) => {
 
         const onlineSocketUsers = Array.from(userSockets.keys());
         console.log(`🔍 [SEND_MESSAGE] Recipients: ${recipientIds.join(', ')} | Online Users: ${onlineSocketUsers.join(', ')}`);
+
+        // 💰 Deduct ChatCoin credits ONLY for PLATFORM_ADMIN users (1 credit per character)
+        // Ensure regular USER messages are NEVER charged
+        if (content && userRole === 'PLATFORM_ADMIN') {
+            const deduction = await deductCreditsForMessage(userId, content);
+            if (!deduction.success) {
+                return socket.emit('error', { message: deduction.error });
+            }
+        }
 
         const recipientOnline = recipientIds.some(recipientId => userSockets.has(recipientId));
         console.log(`📡 [SEND_MESSAGE] Recipient online status: ${recipientOnline}`);
