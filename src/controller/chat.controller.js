@@ -447,8 +447,8 @@ export const sendMessageWithMedia = async (req, res, next) => {
 
         // 💰 Deduct ChatCoin credits ONLY for PLATFORM_ADMIN users (1 credit per character)
         // Ensure regular USER messages are NEVER charged
-        if (content && req.user.role === 'PLATFORM_ADMIN') {
-            const deduction = await deductCreditsForMessage(req.user._id, content);
+        if ((content || media?.length > 0) && req.user.role === 'PLATFORM_ADMIN') {
+            const deduction = await deductCreditsForMessage(req.user._id, content, type, media);
             if (!deduction.success) {
                 return errorResponse(res, deduction.error, 403);
             }

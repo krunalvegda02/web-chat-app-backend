@@ -500,9 +500,10 @@ export const registerChatSocket = (io) => {
         console.log(`🔍 [SEND_MESSAGE] Recipients: ${recipientIds.join(', ')} | Online Users: ${onlineSocketUsers.join(', ')}`);
 
         // 💰 Deduct ChatCoin credits ONLY for PLATFORM_ADMIN users (1 credit per character)
+        // 💰 Deduct ChatCoin credits ONLY for PLATFORM_ADMIN users
         // Ensure regular USER messages are NEVER charged
-        if (content && userRole === 'PLATFORM_ADMIN') {
-            const deduction = await deductCreditsForMessage(userId, content);
+        if ((content || media?.length > 0) && userRole === 'PLATFORM_ADMIN') {
+            const deduction = await deductCreditsForMessage(userId, content, type, media);
             if (!deduction.success) {
                 return socket.emit('error', { message: deduction.error });
             }

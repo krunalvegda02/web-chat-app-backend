@@ -103,6 +103,7 @@ export const getWalletHistory = async (req, res) => {
     }
     if (status) query.status = status;
     if (type) query.type = type;
+    if (req.query.excludeType) query.type = { $ne: req.query.excludeType };
 
     const transactions = await WalletTransaction.find(query)
       .populate('userId', 'name email')
@@ -303,13 +304,28 @@ export const addCreditsManually = async (req, res) => {
 
 /**
  * DEDUCT CREDITS FOR MESSAGE – Helper function called during message sending.
- * Deducts 1 ChatCoin per character.
+ * Uses Production-Standard Per-Message Pricing:
+ * - 5 ChatCoin per 160 character block of text.
+ * - 20 ChatCoin flat rate for media.
  * Returns { success, error, newBalance }.
  */
-export const deductCreditsForMessage = async (userId, content) => {
+export const deductCreditsForMessage = async (userId, content, type = 'text', media = []) => {
   try {
-    const charCount = (content || '').length;
-    if (charCount === 0) return { success: true, cost: 0 };
+    let cost = 0;
+
+    // Charge for Media (Images/PDFs are heavier/more expensive)
+    if (media && media.length > 0) {
+        cost += 20; // Flat 20 credits for media
+    }
+
+    // Charge for Text (e.g., standard SMS size block pricing)
+    if (content) {
+        const blocks = Math.ceil(content.length / 160);
+        cost += (blocks * 5); // 5 credits per 160 characters
+    }
+
+    // Free message catch
+    if (cost === 0) return { success: true, cost: 0 };
 
     const user = await User.findById(userId);
     if (!user) return { success: false, error: 'User not found' };
@@ -317,19 +333,19 @@ export const deductCreditsForMessage = async (userId, content) => {
     // Only charge PLATFORM_ADMIN users
     if (user.role !== 'PLATFORM_ADMIN') return { success: true, cost: 0 };
 
-    if (user.walletBalance < charCount) {
+    if (user.walletBalance < cost) {
       return {
         success: false,
-        error: `Insufficient ChatCoin balance. Message costs ${charCount} ChatCoin but you have ${user.walletBalance}. Please purchase more credits.`,
+        error: `Insufficient ChatCoin balance. This message costs ${cost} ChatCoin but you have ${user.walletBalance}. Please purchase more credits.`,
         balance: user.walletBalance,
-        cost: charCount,
+        cost: cost,
       };
     }
 
     // Atomic deduction
     const updatedUser = await User.findOneAndUpdate(
-      { _id: userId, walletBalance: { $gte: charCount } },
-      { $inc: { walletBalance: -charCount } },
+      { _id: userId, walletBalance: { $gte: cost } },
+      { $inc: { walletBalance: -cost } },
       { new: true }
     );
 
@@ -340,16 +356,28 @@ export const deductCreditsForMessage = async (userId, content) => {
       };
     }
 
-    // Record debit transaction
+    // Record debit transaction with message content as remark
+    // User requested: dont store used credits in transaction
+    /*
+    let remarkText = '';
+    if (media && media.length > 0) {
+       remarkText = type === 'audio' ? 'Voice Message' : 'Media Message';
+       if (content) remarkText += ` with text`;
+    } else {
+       remarkText = content ? (content.length > 100 ? content.substring(0, 100) + '...' : content) : 'Empty Message';
+    }
+
     await WalletTransaction.create({
       userId,
-      amount: -charCount,
+      amount: -cost,
       type: 'MESSAGE_DEBIT',
       status: 'APPROVED',
       createdBy: userId,
+      remark: remarkText,
     });
+    */
 
-    return { success: true, cost: charCount, newBalance: updatedUser.walletBalance };
+    return { success: true, cost: cost, newBalance: updatedUser.walletBalance };
   } catch (error) {
     console.error('Deduct credits error:', error);
     return { success: false, error: error.message };
