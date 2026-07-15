@@ -55,6 +55,11 @@ const platformSchema = new mongoose.Schema({
     default: new Map(),
   },
   
+  senderCharge: {
+    type: Boolean,
+    default: false,
+  },
+
   status: {
     type: String,
     enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'],

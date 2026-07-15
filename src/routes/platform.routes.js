@@ -32,7 +32,7 @@ const router = express.Router();
 router.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma, X-Content-Type-Options, X-XSS-Protection, X-Frame-Options');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(200);
 });
@@ -83,7 +83,7 @@ router.delete('/:platformId/api-key', authenticate, requireRole(['SUPER_ADMIN', 
 router.options('/integration/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key, Cache-Control, Pragma, X-Content-Type-Options, X-XSS-Protection, X-Frame-Options');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(200);
 });

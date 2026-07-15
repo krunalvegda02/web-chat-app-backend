@@ -445,9 +445,9 @@ export const sendMessageWithMedia = async (req, res, next) => {
             return errorResponse(res, 'Only room members can send messages', 403);
         }
 
-        // 💰 Deduct ChatCoin credits ONLY for PLATFORM_ADMIN users (1 credit per character)
-        // Ensure regular USER messages are NEVER charged
-        if ((content || media?.length > 0) && req.user.role === 'PLATFORM_ADMIN') {
+        // 💰 Deduct ChatCoin credits
+        // The deduction logic now internally checks roles and senderCharge settings
+        if (content || media?.length > 0) {
             const deduction = await deductCreditsForMessage(req.user._id, content, type, media);
             if (!deduction.success) {
                 return errorResponse(res, deduction.error, 403);

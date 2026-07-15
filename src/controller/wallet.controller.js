@@ -1,6 +1,7 @@
 import User from '../models/user.model.js';
 import WalletTransaction from '../models/walletTransaction.model.js';
 import SuperAdminBank from '../models/superAdminBank.model.js';
+import Platform from '../models/platform.model.js';
 import { successResponse, errorResponse } from '../utils/response.js';
 
 // ============================================
@@ -70,6 +71,10 @@ export const requestCredit = async (req, res) => {
   }
 };
 
+
+
+
+
 /**
  * GET WALLET BALANCE – Returns current balance and currency for the authenticated user.
  */
@@ -88,6 +93,9 @@ export const getWalletBalance = async (req, res) => {
     return errorResponse(res, error.message, 500);
   }
 };
+
+
+
 
 /**
  * GET WALLET HISTORY – Returns all transactions for the authenticated user (or all for Super Admin).
@@ -130,6 +138,9 @@ export const getWalletHistory = async (req, res) => {
   }
 };
 
+
+
+
 /**
  * GET PENDING REQUESTS – Super Admin fetches all pending credit requests.
  */
@@ -167,6 +178,9 @@ export const getPendingRequests = async (req, res) => {
     return errorResponse(res, error.message, 500);
   }
 };
+
+
+
 
 /**
  * APPROVE CREDIT – Super Admin approves a pending credit request.
@@ -248,6 +262,7 @@ export const rejectCredit = async (req, res) => {
   }
 };
 
+
 /**
  * ADD CREDITS MANUALLY – Super Admin adds credits directly to a Platform Admin's wallet.
  * No request/approval flow; instant credit.
@@ -302,6 +317,12 @@ export const addCreditsManually = async (req, res) => {
   }
 };
 
+
+
+
+
+
+
 /**
  * DEDUCT CREDITS FOR MESSAGE – Helper function called during message sending.
  * Uses Production-Standard Per-Message Pricing:
@@ -330,8 +351,28 @@ export const deductCreditsForMessage = async (userId, content, type = 'text', me
     const user = await User.findById(userId);
     if (!user) return { success: false, error: 'User not found' };
 
-    // Only charge PLATFORM_ADMIN users
-    if (user.role !== 'PLATFORM_ADMIN') return { success: true, cost: 0 };
+    // Determine if this user should be charged
+    let shouldCharge = false;
+
+    if (user.role === 'PLATFORM_ADMIN') {
+      shouldCharge = true;
+    } else if (user.role === 'USER') {
+      // Check if the user's platform has senderCharge enabled
+      if (user.platformId) {
+        const platform = await Platform.findById(user.platformId).lean();
+        if (platform && platform.senderCharge === true) {
+          shouldCharge = true;
+        }
+      } else if (user.externalUserId) {
+         // Fallback if platformId isn't directly on user but they are external
+         const platform = await Platform.findOne({ 'sessionTokens.userData.externalUserId': user.externalUserId }).lean();
+         if (platform && platform.senderCharge === true) {
+            shouldCharge = true;
+         }
+      }
+    }
+
+    if (!shouldCharge) return { success: true, cost: 0 };
 
     if (user.walletBalance < cost) {
       return {

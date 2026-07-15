@@ -107,7 +107,7 @@ export const debugJwtSecret = async (req, res) => {
 // ============================================
 export const createPlatform = async (req, res) => {
   try {
-    const { name, email, password = 'Admin@123', phone } = req.body;
+    const { name, email, password = 'Admin@123', phone, senderCharge } = req.body;
 
     if (!name || !email) {
       return errorResponse(res, 'Platform name and admin email are required', 400);
@@ -149,6 +149,7 @@ export const createPlatform = async (req, res) => {
       slug,
       adminId: adminUser._id,
       description: `${name} platform`,
+      senderCharge: Boolean(senderCharge),
       theme: {
         appName: name,
         logoUrl: null,
@@ -158,6 +159,7 @@ export const createPlatform = async (req, res) => {
         accentColor: '#25D366',
         backgroundColor: '#FFFFFF',
         borderColor: '#E9EDEF',
+        textColor: '#111B21',
         headerBackground: '#008069',
         headerText: '#FFFFFF',
         chatBackgroundImage: null,
@@ -213,7 +215,7 @@ export const getAllPlatforms = async (req, res) => {
     if (status) query.status = status;
 
     const platforms = await Platform.find(query)
-      .populate('adminId', 'name email phone')
+      .populate('adminId', 'name email phone walletBalance')
       .skip(skip)
       .limit(parseInt(limit))
       .sort({ createdAt: -1 });
@@ -317,7 +319,7 @@ export const getPlatformById = async (req, res) => {
 export const updatePlatform = async (req, res) => {
   try {
     const { platformId } = req.params;
-    const { name, email, phone, status } = req.body;
+    const { name, email, phone, status, senderCharge } = req.body;
 
     const platform = await Platform.findById(platformId);
     if (!platform) {
@@ -338,6 +340,7 @@ export const updatePlatform = async (req, res) => {
     }
 
     if (status !== undefined) platform.status = status;
+    if (senderCharge !== undefined) platform.senderCharge = Boolean(senderCharge);
 
     // Update admin user
     if (email || phone) {
