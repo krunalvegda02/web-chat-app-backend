@@ -60,6 +60,14 @@ const platformSchema = new mongoose.Schema({
     default: false,
   },
 
+  customPricing: {
+    textCost: { type: Number },
+    mediaCost: { type: Number },
+    textTranslationCost: { type: Number },
+    voiceCost: { type: Number },
+    voiceTranslationCost: { type: Number }
+  },
+
   status: {
     type: String,
     enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'],

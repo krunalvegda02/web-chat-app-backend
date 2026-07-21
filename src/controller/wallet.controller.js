@@ -2,8 +2,8 @@ import User from '../models/user.model.js';
 import WalletTransaction from '../models/walletTransaction.model.js';
 import SuperAdminBank from '../models/superAdminBank.model.js';
 import Platform from '../models/platform.model.js';
+import Setting from '../models/setting.model.js';
 import { successResponse, errorResponse } from '../utils/response.js';
-
 // ============================================
 // WALLET SYSTEM CONTROLLERS
 // ============================================
@@ -332,60 +332,97 @@ export const addCreditsManually = async (req, res) => {
  */
 export const deductCreditsForMessage = async (userId, content, type = 'text', media = []) => {
   try {
-    let cost = 0;
-
-    // Charge for Media (Images/PDFs are heavier/more expensive)
-    if (media && media.length > 0) {
-        cost += 20; // Flat 20 credits for media
-    }
-
-    // Charge for Text (e.g., standard SMS size block pricing)
-    if (content) {
-        const blocks = Math.ceil(content.length / 160);
-        cost += (blocks * 5); // 5 credits per 160 characters
-    }
-
-    // Free message catch
-    if (cost === 0) return { success: true, cost: 0 };
-
     const user = await User.findById(userId);
     if (!user) return { success: false, error: 'User not found' };
 
-    // Determine if this user should be charged
+    // Determine if this user should be charged and who to charge
     let shouldCharge = false;
+    let accountToCharge = user; // Default to sender
+    let platform = null;
 
     if (user.role === 'PLATFORM_ADMIN') {
       shouldCharge = true;
+      if (user.platformId) {
+        platform = await Platform.findById(user.platformId).lean();
+      }
     } else if (user.role === 'USER') {
       // Check if the user's platform has senderCharge enabled
       if (user.platformId) {
-        const platform = await Platform.findById(user.platformId).lean();
-        if (platform && platform.senderCharge === true) {
-          shouldCharge = true;
-        }
+        platform = await Platform.findById(user.platformId).lean();
       } else if (user.externalUserId) {
          // Fallback if platformId isn't directly on user but they are external
-         const platform = await Platform.findOne({ 'sessionTokens.userData.externalUserId': user.externalUserId }).lean();
-         if (platform && platform.senderCharge === true) {
-            shouldCharge = true;
+         platform = await Platform.findOne({ 'sessionTokens.userData.externalUserId': user.externalUserId }).lean();
+      }
+
+      if (platform && platform.senderCharge === true) {
+         shouldCharge = true;
+         // Charge the platform admin, not the user
+         accountToCharge = await User.findById(platform.adminId);
+         if (!accountToCharge) {
+            return { success: false, error: 'Platform Admin account not found for deduction' };
          }
       }
     }
 
     if (!shouldCharge) return { success: true, cost: 0 };
 
-    if (user.walletBalance < cost) {
+    // 1. Fetch Global Pricing Base (always expected to exist)
+    const globalPricing = await Setting.findOne({ key: 'MESSAGE_PRICING' }).lean();
+    let textPrice = globalPricing?.value?.textCost;
+    let mediaPrice = globalPricing?.value?.mediaCost;
+    let textTranslationPrice = globalPricing?.value?.textTranslationCost;
+    let voicePrice = globalPricing?.value?.voiceCost;
+    let voiceTranslationPrice = globalPricing?.value?.voiceTranslationCost;
+
+    // 2. Override with Custom Platform Pricing (if any)
+    if (platform && platform.customPricing) {
+      if (platform.customPricing.textCost !== undefined) textPrice = platform.customPricing.textCost;
+      if (platform.customPricing.mediaCost !== undefined) mediaPrice = platform.customPricing.mediaCost;
+      if (platform.customPricing.textTranslationCost !== undefined) textTranslationPrice = platform.customPricing.textTranslationCost;
+      if (platform.customPricing.voiceCost !== undefined) voicePrice = platform.customPricing.voiceCost;
+      if (platform.customPricing.voiceTranslationCost !== undefined) voiceTranslationPrice = platform.customPricing.voiceTranslationCost;
+    }
+
+    // Calculate Cost
+    let cost = 0;
+    
+    // Process based on type and content
+    if (type === 'voice-translation') {
+       cost += voiceTranslationPrice;
+    } else if (type === 'voice' || type === 'audio') {
+       cost += voicePrice;
+    } else if (type === 'text-translation') {
+       if (content) {
+          const blocks = Math.ceil(content.length / 160);
+          cost += (blocks * textTranslationPrice);
+       }
+    } else {
+       // Standard Text or Media
+       if (media && media.length > 0) {
+           cost += mediaPrice; 
+       }
+       if (content) {
+           const blocks = Math.ceil(content.length / 160);
+           cost += (blocks * textPrice);
+       }
+    }
+
+    if (cost === 0) return { success: true, cost: 0 };
+
+
+
+    if (accountToCharge.walletBalance < cost) {
       return {
         success: false,
-        error: `Insufficient ChatCoin balance. This message costs ${cost} ChatCoin but you have ${user.walletBalance}. Please purchase more credits.`,
-        balance: user.walletBalance,
+        error: `Insufficient ChatCoin balance. This message costs ${cost} ChatCoin but you have ${accountToCharge.walletBalance}. Please purchase more credits.`,
+        balance: accountToCharge.walletBalance,
         cost: cost,
       };
     }
 
     // Atomic deduction
     const updatedUser = await User.findOneAndUpdate(
-      { _id: userId, walletBalance: { $gte: cost } },
+      { _id: accountToCharge._id, walletBalance: { $gte: cost } },
       { $inc: { walletBalance: -cost } },
       { new: true }
     );

@@ -171,6 +171,9 @@ app.get('/api/test-cors', (req, res) => {
 import registerRoutes from "./routes/index.route.js";
 registerRoutes(app);
 
+import { errorHandler } from "./middlewares/errorHandler.middleware.js";
+app.use(errorHandler);
+
 
 import { registerChatSocket } from "./sockets/chatSocket.js";
 // Socket setup function

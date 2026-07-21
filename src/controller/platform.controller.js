@@ -319,7 +319,7 @@ export const getPlatformById = async (req, res) => {
 export const updatePlatform = async (req, res) => {
   try {
     const { platformId } = req.params;
-    const { name, email, phone, status, senderCharge } = req.body;
+    const { name, email, phone, status, senderCharge, customPricing } = req.body;
 
     const platform = await Platform.findById(platformId);
     if (!platform) {
@@ -341,6 +341,19 @@ export const updatePlatform = async (req, res) => {
 
     if (status !== undefined) platform.status = status;
     if (senderCharge !== undefined) platform.senderCharge = Boolean(senderCharge);
+    if (customPricing !== undefined) {
+      if (customPricing === null) {
+        platform.customPricing = undefined; // clear pricing
+      } else {
+        platform.customPricing = {
+          textCost: customPricing.textCost !== undefined ? Number(customPricing.textCost) : platform.customPricing?.textCost,
+          mediaCost: customPricing.mediaCost !== undefined ? Number(customPricing.mediaCost) : platform.customPricing?.mediaCost,
+          textTranslationCost: customPricing.textTranslationCost !== undefined ? Number(customPricing.textTranslationCost) : platform.customPricing?.textTranslationCost,
+          voiceCost: customPricing.voiceCost !== undefined ? Number(customPricing.voiceCost) : platform.customPricing?.voiceCost,
+          voiceTranslationCost: customPricing.voiceTranslationCost !== undefined ? Number(customPricing.voiceTranslationCost) : platform.customPricing?.voiceTranslationCost
+        };
+      }
+    }
 
     // Update admin user
     if (email || phone) {

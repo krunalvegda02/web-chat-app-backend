@@ -187,7 +187,8 @@ export const getAllActiveRooms = async (req, res, next) => {
             participants: {
                 $elemMatch: { userId: userId }
             },
-            isArchived: false
+            isArchived: false,
+            lastMessage: { $exists: true, $ne: null }
         })
             .populate('participants.userId', 'name email avatar role')
             .populate('lastMessage')
@@ -200,7 +201,8 @@ export const getAllActiveRooms = async (req, res, next) => {
             participants: {
                 $elemMatch: { userId: userId }
             },
-            isArchived: false
+            isArchived: false,
+            lastMessage: { $exists: true, $ne: null }
         });
 
         const formattedRooms = await Promise.all(rooms.map(async room => {
@@ -783,7 +785,8 @@ export const getSpecificMemberChats = async (req, res, next) => {
                 $elemMatch: { userId: memberId }
             },
             platformId: platformId,
-            isArchived: false
+            isArchived: false,
+            lastMessage: { $exists: true, $ne: null }
         })
             .populate('participants.userId', 'name email avatar role phone')
             .populate('lastMessage')
@@ -921,7 +924,8 @@ export const getUserRooms = async (req, res, next) => {
             participants: {
                 $elemMatch: { userId: userId }
             },
-            isArchived: false
+            isArchived: false,
+            lastMessage: { $exists: true, $ne: null }
         })
             .populate('participants.userId', 'name email avatar role phone')
             .populate('lastMessage')

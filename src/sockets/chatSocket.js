@@ -987,6 +987,15 @@ export const registerChatSocket = (io) => {
         let translationUpdate = {};
         let translationResult = {};
 
+        const deductionType = isVoice ? 'voice-translation' : 'text-translation';
+        const contentForBilling = isVoice ? '' : (message.content || message.translation?.transcription || '');
+        
+        // 💰 Deduct credits for translation
+        const deduction = await deductCreditsForMessage(userId, contentForBilling, deductionType);
+        if (!deduction.success) {
+            return socket.emit('error', { message: deduction.error });
+        }
+
         if (isVoice && message.media?.[0]?.url) {
           // Full voice pipeline: transcribe → translate → TTS
           const audioUrl = message.media[0].url;
@@ -1034,7 +1043,7 @@ export const registerChatSocket = (io) => {
           };
         }
 
-        await Message.findByIdAndUpdate(messageId, translationUpdate);
+        await Message.findByIdAndUpdate(messageId, { $set: translationUpdate });
 
         socket.emit('message_translated', {
           messageId,

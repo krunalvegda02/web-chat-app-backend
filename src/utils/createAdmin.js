@@ -21,7 +21,7 @@ export const createAdmin = async () => {
                 _id: registerAdmin._id,
                 name: registerAdmin.name,
                 email: registerAdmin.email,
-                role: registerAdmin.role
+                 role: registerAdmin.role
             });
         } else {
             console.log("Admin already exists:", {
