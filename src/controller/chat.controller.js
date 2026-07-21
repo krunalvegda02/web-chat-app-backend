@@ -454,6 +454,12 @@ export const sendMessageWithMedia = async (req, res, next) => {
             if (!deduction.success) {
                 return errorResponse(res, deduction.error, 403);
             }
+            if (deduction.chargedUserId) {
+                const io = req.app.get('io');
+                if (io) {
+                    io.of('/chat').to(`user:${deduction.chargedUserId}`).emit('wallet_balance_updated', { balance: deduction.newBalance });
+                }
+            }
         }
 
         // 

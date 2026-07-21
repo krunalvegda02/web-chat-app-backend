@@ -216,6 +216,11 @@ export const approveCredit = async (req, res) => {
       { new: true }
     );
 
+    const io = req.app.get('io');
+    if (io && targetUser) {
+        io.of('/chat').to(`user:${targetUser._id.toString()}`).emit('wallet_balance_updated', { balance: targetUser.walletBalance });
+    }
+
     console.log(`✅ [WALLET] Credit approved: ${transaction.amount} ChatCoin for user ${targetUser?.email}`);
 
     return successResponse(res, {
@@ -304,6 +309,11 @@ export const addCreditsManually = async (req, res) => {
       { $inc: { walletBalance: amount } },
       { new: true }
     );
+
+    const io = req.app.get('io');
+    if (io && updatedUser) {
+        io.of('/chat').to(`user:${updatedUser._id.toString()}`).emit('wallet_balance_updated', { balance: updatedUser.walletBalance });
+    }
 
     console.log(`💎 [WALLET] Super Admin manually added ${amount} ChatCoin to ${targetUser.email}`);
 
@@ -455,7 +465,7 @@ export const deductCreditsForMessage = async (userId, content, type = 'text', me
     });
     */
 
-    return { success: true, cost: cost, newBalance: updatedUser.walletBalance };
+    return { success: true, cost: cost, newBalance: updatedUser.walletBalance, chargedUserId: accountToCharge._id.toString() };
   } catch (error) {
     console.error('Deduct credits error:', error);
     return { success: false, error: error.message };

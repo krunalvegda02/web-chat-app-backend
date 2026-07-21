@@ -506,6 +506,9 @@ export const registerChatSocket = (io) => {
             if (!deduction.success) {
                 return socket.emit('error', { message: deduction.error });
             }
+            if (deduction.chargedUserId) {
+                emitToUser(io, deduction.chargedUserId, 'wallet_balance_updated', { balance: deduction.newBalance });
+            }
         }
 
         const recipientOnline = recipientIds.some(recipientId => userSockets.has(recipientId));
@@ -994,6 +997,9 @@ export const registerChatSocket = (io) => {
         const deduction = await deductCreditsForMessage(userId, contentForBilling, deductionType);
         if (!deduction.success) {
             return socket.emit('error', { message: deduction.error });
+        }
+        if (deduction.chargedUserId) {
+            emitToUser(io, deduction.chargedUserId, 'wallet_balance_updated', { balance: deduction.newBalance });
         }
 
         if (isVoice && message.media?.[0]?.url) {
