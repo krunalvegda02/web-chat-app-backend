@@ -694,8 +694,9 @@ export const generateSessionToken = async (req, res) => {
       return errorResponse(res, 'Valid API key is required', 401);
     }
 
-    const { name, email, phone, externalUserId } = req.body;
-    if (!phone) return errorResponse(res, 'Phone is required', 400);
+    const { name, externalUserId } = req.body;
+    if (!name) return errorResponse(res, 'Name (username) is required', 400);
+    if (/\s/.test(name)) return errorResponse(res, 'Username cannot contain spaces', 400);
 
     const platforms = await Platform.find({ status: 'ACTIVE' });
     const platform = platforms.find(p => p.apiKey && validateApiKey(apiKey, p.apiKey));
@@ -712,7 +713,7 @@ export const generateSessionToken = async (req, res) => {
       token: sessionToken,
       expiresAt,
       usedAt: null,
-      userData: { name, email, phone, externalUserId }
+      userData: { name, externalUserId }
     });
 
     await platform.save();
@@ -758,23 +759,25 @@ export const consumeSessionToken = async (req, res) => {
     await platform.save();
 
     // Now perform the actual login using the stored userData
-    const { name, email, phone, externalUserId } = tokenEntry.userData;
-    const normalizedPhone = phone.replace(/\D/g, '');
-    const finalEmail = email || `user_${normalizedPhone}@${platform.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.local`;
+    const { name, externalUserId } = tokenEntry.userData;
+    const trimmedName = name?.trim() || `User_${Date.now()}`;
 
+    // Find user by (name + platformId) — this guarantees platform isolation
+    // platform1:Yash and platform2:Yash will always find separate records
     let user = await User.findOne({
-      $and: [
-        { $or: [{ platformId: platform._id }, { platformName: platform.name }] },
-        { $or: [{ phone: normalizedPhone }, ...(email ? [{ email }] : [])] }
-      ]
+      name: trimmedName,
+      platformId: platform._id
     });
 
     let isNewUser = false;
     if (!user) {
+      // Auto-generate a unique internal email (never exposed to users)
+      const safeSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const platformSlug = platform.name.toLowerCase().replace(/[^a-z0-9]/g, '');
       user = new User({
-        name: name?.trim() || `User_${normalizedPhone}`,
-        email: finalEmail,
-        phone: normalizedPhone,
+        name: trimmedName,
+        email: `${safeSlug}@${platformSlug}.local`,
+
         password: 'TempPassword@123',
         role: 'USER',
         platformId: platform._id,
@@ -784,8 +787,17 @@ export const consumeSessionToken = async (req, res) => {
         externalUserId: externalUserId || null,
         blockedUsers: [],
       });
-      await user.save();
-      isNewUser = true;
+      try {
+        await user.save();
+        isNewUser = true;
+      } catch (saveError) {
+        if (saveError.code === 11000 && saveError.keyValue) {
+          // Race condition: another request already created the user
+          user = await User.findOne({ name: trimmedName, platformId: platform._id });
+          if (!user) throw saveError;
+          isNewUser = false;
+        } else throw saveError;
+      }
     } else {
       await User.findByIdAndUpdate(user._id, {
         $set: { platformId: platform._id, platformName: platform.name, refreshTokens: [] }
@@ -823,7 +835,7 @@ export const consumeSessionToken = async (req, res) => {
       }
     }
 
-    console.log(`✅ [SESSION_TOKEN] Consumed token, logged in user ${normalizedPhone} for platform ${platform.name}`);
+    console.log(`✅ [SESSION_TOKEN] Consumed token, logged in user "${user.name}" for platform ${platform.name}`);
 
     return successResponse(res, {
       user: user.toJSON(),
@@ -865,51 +877,59 @@ export const platformChatLogin = async (req, res) => {
       return errorResponse(res, 'Invalid or inactive API key', 401);
     }
 
-    const { name, email, phone, password, externalUserId } = req.body;
+    const { name, externalUserId } = req.body;
     const platformId = platform._id;
 
-    if (!email || !phone) {
-      return errorResponse(res, 'Email and phone are required', 400);
+    if (!name) {
+      return errorResponse(res, 'Name (username) is required', 400);
+    }
+    if (/\s/.test(name)) {
+      return errorResponse(res, 'Username cannot contain spaces', 400);
     }
 
-    const normalizedPhone = phone.replace(/\D/g, '');
+    const trimmedName = name.trim();
     let user = null;
     let isNewUser = false;
 
-    // Check if user exists by email or phone
-    user = await User.findOne({
-      $or: [
-        { email },
-        { phone: normalizedPhone }
-      ],
-      platformId
-    });
+    // Lookup by name scoped to this platform — guarantees platform1:Yash ≠ platform2:Yash
+    user = await User.findOne({ name: trimmedName, platformId });
 
     // If user doesn't exist, create new user
     if (!user) {
-      if (!name) {
-        return errorResponse(res, 'Name is required for new user', 400);
-      }
+      // Auto-generate a unique internal email (never exposed to users)
+      const safeSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const platformSlug = platform.name.toLowerCase().replace(/[^a-z0-9]/g, '');
 
       user = new User({
-        name: name.trim(),
-        email,
-        phone: normalizedPhone,
-        password: password || 'TempPassword@123',
+        name: trimmedName,
+        email: `${safeSlug}@${platformSlug}.local`,
+
+        password: 'TempPassword@123',
         role: 'USER',
         platformId,
+        platformName: platform.name,
         status: 'ACTIVE',
         phoneVerified: false,
         blockedUsers: [],
         externalUserId: externalUserId || null,
       });
 
-      await user.save();
-      isNewUser = true;
-      console.log(`✅ [PLATFORM_CHAT] Created new user ${email} for platform ${platformId}`);
+      try {
+        await user.save();
+        isNewUser = true;
+        console.log(`✅ [PLATFORM_CHAT] Created new user "${trimmedName}" for platform ${platformId}`);
+      } catch (saveError) {
+        // Race condition: another identical request already created the user
+        if (saveError.code === 11000 && saveError.keyValue) {
+          console.warn('⚠️ Race condition caught! Fetching existing user...', saveError.keyValue);
+          user = await User.findOne({ name: trimmedName, platformId });
+          if (!user) throw saveError;
+          isNewUser = false;
+        } else throw saveError;
+      }
     } else {
-      console.log(`✅ [PLATFORM_CHAT] Found existing user ${email} for platform ${platformId}`);
-      // ✅ Clear old refresh tokens to force re-authentication with new secret
+      console.log(`✅ [PLATFORM_CHAT] Found existing user "${trimmedName}" for platform ${platformId}`);
+      // Clear old refresh tokens to force re-authentication
       user.refreshTokens = [];
       await user.save();
     }
@@ -923,7 +943,7 @@ export const platformChatLogin = async (req, res) => {
       req.headers['user-agent'] || 'unknown'
     );
 
-    console.log(`✅ [PLATFORM_CHAT] Generated tokens for user ${email}`);
+    console.log(`✅ [PLATFORM_CHAT] Generated tokens for user ${user.email}`);
 
     // Create or get room with platform admin
     let platformAdmin = platform.adminId; // Already populated

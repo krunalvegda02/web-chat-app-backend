@@ -9,12 +9,10 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     lowercase: true,
-    default: null,
   },
   phone: {
     type: String,
     trim: true,
-    default: null,
   },
 
   
@@ -139,8 +137,8 @@ const userSchema = new mongoose.Schema({
 });
 
 // ========== INDEXES ==========
-userSchema.index({ email: 1, platformId: 1 }, { unique: true, sparse: true });
-userSchema.index({ phone: 1, platformId: 1 }, { unique: true, sparse: true });
+// Username uniqueness per platform: platform1:Yash and platform2:Yash are separate users
+userSchema.index({ name: 1, platformId: 1 }, { unique: true, sparse: true });
 userSchema.index({ platformId: 1 });
 userSchema.index({ platformName: 1 });
 

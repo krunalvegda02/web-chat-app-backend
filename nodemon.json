@@ -4,6 +4,8 @@
     "node_modules",
     "public",
     "public/temp",
+    "uploads",
+    "uploads/temp",
     ".git",
     ".env"
   ],
